@@ -16,7 +16,8 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
 
    public static final int    ELECTION_TIMEOUT_FIXED_MILLIS  = 1000;
    public static final int    ELECTION_TIMEOUT_RANDOM_MILLIS = 2000;
-   public static final int    HEARTBEAT_MILLIS               = 150;
+   public static final int    HEARTBEAT_MILLIS               = 250;
+   public static final int    MAX_ENTRIES_PER_REQUEST        = 250;
 
    /**
     * These are the major raft roles we can be in
@@ -44,10 +45,10 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
 
    public class Peer {
       private final int peerId;
-      private Role      role;
       private long      lastAppendMillis;
-      private long      nextIndex;
+      private long      nextIndex = 1;
       private long      matchIndex;
+      private boolean   appendPending;
 
       public Peer(int peerId) {
          this.peerId = peerId;
@@ -76,8 +77,17 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       launchPeriodicTasksThread();
    }
 
+   @Override
+   public synchronized String toString() {
+      return String.format("Raft[%d] %s", myPeerId, role);
+   }
+
    public String getClusterName() {
       return clusterName;
+   }
+
+   public StateMachine<T> getStateMachine() {
+      return stateMachine;
    }
 
    public synchronized void setPeerId(int peerId) {
@@ -124,16 +134,19 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       t.start();
    }
 
-   /**
-    * Called periodically to do recurring work
-    */
-   private synchronized void runPeriodicTasks() {
-      // TODO: probably do this elsewhere
-      while (log.getCommitIndex() > stateMachine.getIndex()) {
+   private void updateStateMachine(long index) {
+      while (index > stateMachine.getIndex()) {
          final Entry<T> e = log.getEntry(stateMachine.getIndex() + 1);
          e.command.applyTo(stateMachine);
          stateMachine.apply(e.index, e.term);
       }
+   }
+
+   /**
+    * Called periodically to do recurring work
+    */
+   private synchronized void runPeriodicTasks() {
+      updateStateMachine(log.getCommitIndex());
 
       switch (role) {
          case Joining:
@@ -147,6 +160,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
             }
             break;
          case Leader:
+            updateCommitIndex();
             updatePeers();
             break;
          case Leaving:
@@ -154,9 +168,30 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       }
    }
 
-   @Override
-   public synchronized String toString() {
-      return String.format("Raft[%d] %s", myPeerId, role);
+   private synchronized boolean isCommittable(long index) {
+      int count = 1;
+      int needed = 1 + (peers.size() / 2);
+      for (Peer p : peers.values()) {
+         if (p.matchIndex >= index) {
+            count++;
+            if (count >= needed)
+               return true;
+         }
+      }
+      return false;
+   }
+
+   private synchronized void updateCommitIndex() {
+      assert (role == Role.Leader);
+      // we can commit any entry a majority of peers have replicated
+      long index = log.getLastIndex();
+      for (Peer peer : peers.values()) {
+         index = Math.min(index, peer.matchIndex);
+      }
+      while (index < log.getLastIndex() && isCommittable(index)) {
+         log.setCommitIndex(index);
+         index++;
+      }
    }
 
    private synchronized void callElection() {
@@ -167,11 +202,14 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       votedFor = myPeerId;
       logger.info("{} is calling an election (term {})", this, currentTerm);
       for (Peer peer : peers.values()) {
+         peer.nextIndex = 1;
+         peer.matchIndex = 0;
          rpc.sendRequestVote(peer.peerId, currentTerm, myPeerId, log.getLastIndex(), log.getLastTerm(),
                new RaftRPC.RequestVoteResponseHandler() {
                   @Override
                   public void handleResponse(long term, boolean voteGranted) {
                      synchronized (RaftEngine.this) {
+                        // TODO peer.nextIndex = peer's commitIndex 
                         if (term == currentTerm && role == Role.Candidate) {
                            if (voteGranted) {
                               votes.val++;
@@ -214,6 +252,9 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
    private synchronized void becomeLeader() {
       logger.info("{} is becoming the leader (term {})", this, currentTerm);
       role = Role.Leader;
+      for (Peer peer : peers.values()) {
+         peer.matchIndex = 0;
+      }
       updatePeers();
    }
 
@@ -224,29 +265,88 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
    private synchronized void updatePeers() {
       assert role == Role.Leader;
       for (Peer peer : peers.values()) {
-         if (peer.nextIndex < log.getLastIndex() || System.currentTimeMillis() > peer.lastAppendMillis + HEARTBEAT_MILLIS) {
-            updatePeer(peer);
-         }
+         updatePeer(peer);
       }
    }
 
-   private synchronized void updatePeer(Peer peer) {
-      rpc.sendAppendEntries(peer.peerId, currentTerm, myPeerId, 0, 0, null, log.getCommitIndex(), new AppendEntriesResponseHandler() {
-         @Override
-         public void handleResponse(long term, boolean success) {
-            synchronized (RaftEngine.this) {
+   private synchronized void updatePeer(final Peer peer) {
+      if (!peer.appendPending
+            && (peer.nextIndex < log.getLastIndex() || System.currentTimeMillis() > peer.lastAppendMillis + HEARTBEAT_MILLIS)) {
+         peer.lastAppendMillis = System.currentTimeMillis();
+         peer.appendPending = true;
+         final Entry<T>[] entries = log.getEntries(peer.nextIndex, MAX_ENTRIES_PER_REQUEST);
+         assert (peer.nextIndex > 0);
+         long prevLogIndex = peer.nextIndex - 1;
+         long prevLogTerm = log.getTerm(prevLogIndex);
 
-            }
-         }
-      });
+         logger.trace("{} is sending append entries to {}", this, peer.peerId);
+         rpc.sendAppendEntries(peer.peerId, currentTerm, myPeerId, prevLogIndex, prevLogTerm, entries, log.getCommitIndex(),
+               new AppendEntriesResponseHandler() {
+                  @Override
+                  public void handleResponse(long term, boolean success) {
+                     synchronized (RaftEngine.this) {
+                        peer.appendPending = false;
+
+                        if (role == Role.Leader) {
+                           if (term > currentTerm) {
+                              stepDown(term);
+                           } else {
+                              if (success) {
+                                 if (entries != null) {
+                                    peer.matchIndex = entries[entries.length - 1].index;
+                                    peer.nextIndex = peer.matchIndex + 1;
+                                 }
+                                 updatePeer(peer);
+                              } else {
+                                 assert peer.nextIndex > 1;
+                                 if (peer.nextIndex > 1) {
+                                    peer.nextIndex--;
+                                 }
+                              }
+                           }
+                        }
+                     }
+                  }
+               });
+      }
    }
 
+   @SuppressWarnings("unchecked")
    @Override
    public synchronized AppendEntriesResponse handleAppendEntries(long term, int leaderId, long prevLogIndex, long prevLogTerm,
          Entry<?>[] entries, long leaderCommit) {
 
-      scheduleElection();
+      logger.trace("{} received append entries from {}", this, leaderId);
+      if (term >= currentTerm) {
+         if (term > currentTerm) {
+            stepDown(term);
+         }
+         scheduleElection();
+         if (log.isConsistentWith(prevLogIndex, prevLogTerm)) {
+            if (entries != null) {
+               for (Entry<?> e : entries) {
+                  if (!log.append((Entry<T>) e)) {
+                     logger.warn("{} is failing append entries from {}", this, leaderId);
+                     return new AppendEntriesResponse(currentTerm, false);
+                  }
+               }
+            }
+            log.setCommitIndex(Math.min(leaderCommit, log.getLastIndex()));
+
+            logger.trace("{} is fine with append entries from {}", this, leaderId);
+            return new AppendEntriesResponse(currentTerm, true);
+         }
+      }
+
+      logger.trace("{} is rejecting append entries from {}", this, leaderId);
       return new AppendEntriesResponse(currentTerm, false);
    }
 
+   public synchronized void executeCommand(Command<T> command) {
+      if (role == Role.Leader) {
+         if (log.append(currentTerm, command)) {
+            updateStateMachine(log.getLastIndex());
+         }
+      }
+   }
 }

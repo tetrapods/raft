@@ -36,7 +36,6 @@ public class Log<T extends StateMachine<T>> {
    private long                 lastIndex     = 0;
    private long                 lastTerm      = 0;
    private long                 commitIndex   = 0;
-   private long                 commitTerm    = 0;
    private long                 snapshotIndex = 0;
    private long                 snapshotTerm  = 0;
 
@@ -96,11 +95,35 @@ public class Log<T extends StateMachine<T>> {
          if (index >= firstIndex) {
             assert index - firstIndex < Integer.MAX_VALUE;
             return entries.get((int) (index - firstIndex));
-         } else if (index >= snapshotIndex) {
+         } else if (index > snapshotIndex) {
             // TODO: we need to fetch it from disk
          }
       }
       return null; // we don't have it!
+   }
+
+   public Entry<T>[] getEntries(long fromIndex, int maxEntries) {
+      if (fromIndex > lastIndex) {
+         return null;
+      }
+      @SuppressWarnings("unchecked")
+      final Entry<T>[] list = (Entry<T>[]) new Entry<?>[(int) Math.min(maxEntries, (lastIndex - fromIndex) + 1)];
+      for (int i = 0; i < list.length; i++) {
+         list[i] = getEntry(fromIndex + i);
+         assert list[i] != null;
+      }
+      return list;
+   }
+
+   public long getTerm(long index) {
+      if (index > snapshotIndex) {
+         return getEntry(index).term;
+      } else if (index > snapshotIndex) {
+         return snapshotTerm;
+      } else if (index == 0) {
+         return 0;
+      }
+      return -1; // maybe throw exception?
    }
 
    private synchronized void wipeConflictedEntries(long index) {
@@ -109,7 +132,7 @@ public class Log<T extends StateMachine<T>> {
          entries.remove((int) (lastIndex-- - firstIndex));
       }
       if (lastIndex > 0) {
-         lastTerm = getEntry(lastIndex).term;
+         lastTerm = getTerm(lastIndex);
       } else {
          lastTerm = 0;
       }
@@ -147,8 +170,8 @@ public class Log<T extends StateMachine<T>> {
       return commitIndex;
    }
 
-   public synchronized long getCommitTerm() {
-      return commitTerm;
+   public synchronized void setCommitIndex(long index) {
+      commitIndex = index;
    }
 
    public synchronized long getSnapshotIndex() {
@@ -157,6 +180,19 @@ public class Log<T extends StateMachine<T>> {
 
    public synchronized long getSnapshotTerm() {
       return snapshotTerm;
+   }
+
+   /**
+    * See if our log is consistent with the purported leader
+    * 
+    * @return false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
+    */
+   public boolean isConsistentWith(long index, long term) {
+      if (index == 0 && term == 0) {
+         return true;
+      }
+      final Entry<T> entry = getEntry(index);
+      return (entry != null && entry.term == term);
    }
 
 }

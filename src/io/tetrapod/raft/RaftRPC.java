@@ -45,4 +45,7 @@ public interface RaftRPC {
          this.success = success;
       }
    }
+   
+   
+   
 }
