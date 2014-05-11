@@ -244,8 +244,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
          votedFor = candidateId;
          scheduleElection();
 
-         logger.info(String.format("%s I'm voting for %d (term %d) %d >= %d", this, candidateId, currentTerm, lastLogIndex,
-               log.getLastIndex()));
+         logger.info(String.format("%s I'm voting for %d (term %d)", this, candidateId, currentTerm));
          return new RequestVoteResponse(currentTerm, true);
       }
       return new RequestVoteResponse(currentTerm, false);
@@ -294,6 +293,9 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
    }
 
    private synchronized void updatePeer(final Peer peer) {
+      if (peer.appendPending && System.currentTimeMillis() > peer.lastAppendMillis + 10000) {
+         peer.appendPending = false; // time out the last append
+      }
       if (!peer.appendPending
             && (peer.nextIndex < log.getLastIndex() || System.currentTimeMillis() > peer.lastAppendMillis + HEARTBEAT_MILLIS)) {
          peer.lastAppendMillis = System.currentTimeMillis();
@@ -339,11 +341,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
    public synchronized AppendEntriesResponse handleAppendEntries(long term, int leaderId, long prevLogIndex, long prevLogTerm,
          Entry<?>[] entries, long leaderCommit) {
 
-      if (DEBUG) {
-         //     logger.debug(String.format("%s append entries from %d: from <%d:%016d>", this, leaderId, prevLogTerm, prevLogIndex));
-      }
-
-      //   logger.debug(String.format("%s append entries from %d: from <%d:%016X>", this, leaderId, prevLogTerm, prevLogIndex));
+      //   logger.debug(String.format("%s append entries from %d: from <%d:%d>", this, leaderId, prevLogTerm, prevLogIndex));
       if (term >= currentTerm) {
          if (term > currentTerm) {
             stepDown(term);
@@ -352,7 +350,6 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
          if (this.leaderId != leaderId) {
             this.leaderId = leaderId;
             logger.info("{} my new leader is {}", this, leaderId);
-            logger.debug(String.format("%s append entries from %d: from <%d:%016d>", this, leaderId, prevLogTerm, prevLogIndex));
          }
 
          if (log.isConsistentWith(prevLogIndex, prevLogTerm)) {
