@@ -29,23 +29,23 @@ public interface RaftRPC {
       }
    }
 
-   public void sendAppendEntries(int peerId, long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<?>[] entries, long leaderCommit,
-         AppendEntriesResponseHandler handler);
+   public void sendAppendEntries(int peerId, long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<?>[] entries,
+         long leaderCommit, AppendEntriesResponseHandler handler);
 
    public interface AppendEntriesResponseHandler {
-      public void handleResponse(long term, boolean success);
+      public void handleResponse(long term, boolean success, long lastLogIndex);
    }
 
    public class AppendEntriesResponse {
       final long    term;
       final boolean success;
+      final long    lastLogIndex;
 
-      public AppendEntriesResponse(long term, boolean success) {
+      public AppendEntriesResponse(long term, boolean success, long lastLogIndex) {
          this.term = term;
          this.success = success;
+         this.lastLogIndex = lastLogIndex;
       }
    }
-   
-   
-   
+
 }

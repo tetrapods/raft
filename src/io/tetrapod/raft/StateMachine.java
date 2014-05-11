@@ -18,6 +18,12 @@ public abstract class StateMachine<T extends StateMachine<T>> {
 
    public void loadState(DataInputStream in) throws IOException {}
 
+   // TODO: replace resets with a factory to make new state machines as needed
+   public void reset() {
+      index = 0;
+      term = 0;
+   }
+
    public long getIndex() {
       return index;
    }

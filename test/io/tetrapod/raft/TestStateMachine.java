@@ -18,6 +18,17 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
       return new TestCommand(random.nextLong());
    }
 
+   public long getCheckSum() {
+      return checksum;
+   }
+
+   @Override
+   public void reset() {
+      super.reset();
+      checksum = 0;
+      count = 0;
+   }
+
    @Override
    public String toString() {
       return String.format("TestStateMachine<%d:%016X>", count, checksum);

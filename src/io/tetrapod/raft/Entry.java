@@ -16,7 +16,7 @@ public class Entry<T extends StateMachine<T>> {
 
    /**
     * Read this command to from an input stream
-    */ 
+    */
    public Entry(DataInputStream in, T state) throws IOException {
       term = in.readLong();
       index = in.readLong();
@@ -32,6 +32,11 @@ public class Entry<T extends StateMachine<T>> {
       out.writeLong(index);
       out.writeInt(command.getCommandType());
       command.write(out);
+   }
+
+   @Override
+   public String toString() {
+      return String.format("Entry<%d:%d>", term, index);
    }
 
 }

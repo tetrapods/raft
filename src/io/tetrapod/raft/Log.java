@@ -48,7 +48,7 @@ public class Log<T extends StateMachine<T>> {
    /**
     * Attempts to append the log entry to our log.
     * 
-    * @return true if the entry was successfully appended to the log
+    * @return true if the entry was successfully appended to the log, or was already in our log to begin with
     */
    public synchronized boolean append(Entry<T> entry) {
       // check if the entry is already in our log
@@ -57,6 +57,8 @@ public class Log<T extends StateMachine<T>> {
          if (oldEntry.term != entry.term) {
             logger.warn("Log is conflicted at {}", oldEntry);
             wipeConflictedEntries(oldEntry.index);
+         } else {
+            return true; // we already have this entry
          }
       }
 

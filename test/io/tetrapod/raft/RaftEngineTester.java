@@ -10,13 +10,14 @@ import org.junit.*;
 import org.slf4j.*;
 
 /**
- * Runs a full system test with fake RPC
+ * Runs a full system simulation with fake RPC
  */
 public class RaftEngineTester implements RaftRPC {
 
-   public static final Logger              logger = LoggerFactory.getLogger(RaftEngineTester.class);
+   public static final Logger              logger    = LoggerFactory.getLogger(RaftEngineTester.class);
    private static ScheduledExecutorService executor;
    private static File                     logDir;
+   private static final int                NUM_PEERS = 5;
 
    @BeforeClass
    public static void makeTestDir() throws IOException {
@@ -38,14 +39,15 @@ public class RaftEngineTester implements RaftRPC {
    }
 
    private Map<Integer, RaftEngine<TestStateMachine>> rafts  = new HashMap<>();
+   private RaftEngine<TestStateMachine>               dead   = null;
    private SecureRandom                               random = new SecureRandom();
 
    @Test
    public void testRaftEngine() {
-      for (int i = 1; i <= 3; i++) {
+      for (int i = 1; i <= NUM_PEERS; i++) {
          RaftEngine<TestStateMachine> raft = new RaftEngine<TestStateMachine>(logDir, "TEST", new TestStateMachine(), this);
          raft.setPeerId(i);
-         for (int j = 1; j <= 3; j++) {
+         for (int j = 1; j <= NUM_PEERS; j++) {
             if (j != i) {
                raft.addPeer(j);
             }
@@ -57,25 +59,87 @@ public class RaftEngineTester implements RaftRPC {
          raft.start();
       }
 
+      Thread t = new Thread(new Runnable() {
+         public void run() {
+            while (true) {
+               try {
+                  synchronized (rafts) {
+                     for (RaftEngine<TestStateMachine> raft : rafts.values()) {
+                        raft.executeCommand(new TestStateMachine.TestCommand(random.nextLong()));
+                     }
+                  }
+                  sleep(5);
+               } catch (Throwable t) {
+                  logger.error(t.getMessage(), t);
+               }
+            }
+         }
+      });
+      t.start();
+
+      // WARNING: this will currently run until OOM since we don't have log compaction or journaling yet
       while (true) {
-         logger.info("======================================================================================================");
-         for (RaftEngine<?> raft : rafts.values()) {
-            logger.info(String.format("%d) %10s term=%04d, lastIndex=%04d, lastTerm=%04d commitIndex=%04d, %s", raft.getPeerId(), raft
-                  .getRole(), raft.getCurrentTerm(), raft.getLog().getLastIndex(), raft.getLog().getLastTerm(), raft.getLog()
-                  .getCommitIndex(), raft.getStateMachine()));
-         }
-         logger.info("======================================================================================================");
-         logger.info("");
 
-         for (RaftEngine<TestStateMachine> raft : rafts.values()) {
-            raft.executeCommand(new TestStateMachine.TestCommand(random.nextLong()));
+         synchronized (rafts) {
+            sleep(1000);
+            logger.info("=====================================================================================================================");
+            for (RaftEngine<?> raft : rafts.values()) {
+               logger.info(String.format("%d) %9s term=%d, lastIndex=%d, lastTerm=%d commitIndex=%d, %s", raft.getPeerId(), raft
+                     .getRole(), raft.getCurrentTerm(), raft.getLog().getLastIndex(), raft.getLog().getLastTerm(), raft.getLog()
+                     .getCommitIndex(), raft.getStateMachine()));
+            }
+            logger.info("=====================================================================================================================");
+            logger.info("");
+
+            for (RaftEngine<TestStateMachine> r1 : rafts.values()) {
+               for (RaftEngine<TestStateMachine> r2 : rafts.values()) {
+                  if (r2 != r1) {
+                     synchronized (r1.getStateMachine()) {
+                        synchronized (r1.getStateMachine()) {
+                           if (r1.getStateMachine().getIndex() == r2.getStateMachine().getIndex()) {
+                              Assert.assertEquals(r1.getStateMachine().getCheckSum(), r2.getStateMachine().getCheckSum());
+                           }
+                        }
+                     }
+                  }
+               }
+            }
+
          }
 
-         try {
-            Thread.sleep(2000);
-         } catch (InterruptedException e) {}
+         sleep(1000);
+
+         if (dead == null) {
+            if (random.nextDouble() < 0.1) {
+               List<Integer> items = new ArrayList<Integer>(rafts.keySet());
+               int peerId = items.get(random.nextInt(items.size()));
+               synchronized (rafts) {
+                  dead = rafts.remove(peerId);
+               }
+               logger.info("Killing {}", dead);
+               dead.stop();
+            }
+         } else {
+            if (random.nextDouble() < 0.25) {
+               synchronized (rafts) {
+                  rafts.put(dead.getPeerId(), dead);
+               }
+               logger.info("Reviving {}", dead);
+               dead.start();
+               dead.DEBUG = true;
+               dead = null;
+
+            }
+         }
+
       }
 
+   }
+
+   private void sleep(int millis) {
+      try {
+         Thread.sleep(millis);
+      } catch (InterruptedException e) {}
    }
 
    @Override
@@ -117,7 +181,7 @@ public class RaftEngineTester implements RaftRPC {
                   executor.schedule(new Runnable() {
                      public void run() {
                         try {
-                           handler.handleResponse(res.term, res.success);
+                           handler.handleResponse(res.term, res.success, res.lastLogIndex);
                         } catch (Throwable t) {
                            logger.error(t.getMessage(), t);
                         }
