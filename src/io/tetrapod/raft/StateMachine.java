@@ -1,24 +1,22 @@
 package io.tetrapod.raft;
 
 import java.io.*;
-import java.util.*;
 
 /**
  * The state machine applies commands to update state.
  * 
  * It contains the state we want to coordinate across a distributed cluster.
  */
-public abstract class StateMachine {
+public abstract class StateMachine<T extends StateMachine<T>> {
 
-   private Map<Integer, Class<Command<?>>> commandTypes = new HashMap<>();
-   private long                            index;
-   private long                            term;
+   private long index;
+   private long term;
+
+   public StateMachine() {}
 
    public void saveState(DataOutputStream out) throws IOException {}
 
    public void loadState(DataInputStream in) throws IOException {}
-
-   public void restoreToIndex(long index) {/*TODO*/}
 
    public long getIndex() {
       return index;
@@ -35,13 +33,6 @@ public abstract class StateMachine {
       this.term = term;
    }
 
-   public Command<?> makeCommand(int id) throws IOException {
-      final Class<Command<?>> c = (Class<Command<?>>) commandTypes.get(id);
-      try {
-         return c.newInstance();
-      } catch (Exception e) {
-         throw new RuntimeException("Failed to create class for id=" + id, e);
-      }
-   }
+   public abstract Command<T> makeCommand(int id);
 
 }

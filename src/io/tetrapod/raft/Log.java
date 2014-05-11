@@ -9,14 +9,14 @@ import org.slf4j.*;
  * A raft log is the backbone of the raft algorithm. It stores an ordered list of commands that have been agreed upon by consensus, as well
  * as the tentative list of future commands yet to be confirmed.
  */
-public class Log<T extends StateMachine> {
+public class Log<T extends StateMachine<T>> {
 
-   public static final Logger   logger             = LoggerFactory.getLogger(Log.class);
+   public static final Logger   logger        = LoggerFactory.getLogger(Log.class);
 
    /**
     * The log's in-memory buffer of log entries
     */
-   private final List<Entry<T>> entries            = new ArrayList<>();
+   private final List<Entry<T>> entries       = new ArrayList<>();
 
    /**
     * The directory where we will read and write raft data files
@@ -28,28 +28,22 @@ public class Log<T extends StateMachine> {
     */
    private final LogWriter      logWriter;
 
-   /**
-    * The state machine we are coordinating via raft
-    */
-   private final T              state;
-
    // We keep some key index & term variables that may or 
    // may not be in our buffer and are accessed frequently:
 
-   private long                 firstEntryIndex    = 0;
-   private long                 firstEntryTerm     = 0;
-   private long                 lastEntryIndex     = 0;
-   private long                 lastEntryTerm      = 0;
-   private long                 commitEntryIndex   = 0;
-   private long                 commitEntryTerm    = 0;
-   private long                 snapshotEntryIndex = 0;
-   private long                 snapshotEntryTerm  = 0;
+   private long                 firstIndex    = 0;
+   private long                 firstTerm     = 0;
+   private long                 lastIndex     = 0;
+   private long                 lastTerm      = 0;
+   private long                 commitIndex   = 0;
+   private long                 commitTerm    = 0;
+   private long                 snapshotIndex = 0;
+   private long                 snapshotTerm  = 0;
 
-   public Log(File logDir, T stateMachine) {
+   public Log(File logDir) {
       this.logDirectory = logDir;
       this.logDirectory.mkdirs();
       this.logWriter = new LogWriter(logDirectory);
-      this.state = stateMachine;
    }
 
    /**
@@ -59,7 +53,7 @@ public class Log<T extends StateMachine> {
     */
    public synchronized boolean append(Entry<T> entry) {
       // check if the entry is already in our log
-      if (entry.index <= lastEntryIndex) {
+      if (entry.index <= lastIndex) {
          final Entry<T> oldEntry = getEntry(entry.index);
          if (oldEntry.term != entry.term) {
             logger.warn("Log is conflicted at {}", oldEntry);
@@ -68,22 +62,18 @@ public class Log<T extends StateMachine> {
       }
 
       // validate that this is an acceptable entry to append next
-      if (entry.index == lastEntryIndex + 1 && entry.term >= lastEntryTerm) {
-
-         // apply the event
-         entry.command.applyTo(state);
-         state.apply(entry.index, entry.term);
+      if (entry.index == lastIndex + 1 && entry.term >= lastTerm) {
 
          // append to log
          entries.add(entry);
 
          // update our indexes
-         if (firstEntryIndex == 0) {
-            firstEntryIndex = entry.index;
-            firstEntryTerm = entry.term;
+         if (firstIndex == 0) {
+            firstIndex = entry.index;
+            firstTerm = entry.term;
          }
-         lastEntryIndex = entry.index;
-         lastEntryTerm = entry.term;
+         lastIndex = entry.index;
+         lastTerm = entry.term;
 
          return true;
       }
@@ -94,32 +84,35 @@ public class Log<T extends StateMachine> {
    /**
     * Append a new command to the log. Should only be called by a Leader
     */
-   public boolean append(long term, Command<T> command) {
-      return append(new Entry<T>(term, lastEntryIndex + 1, command));
+   public synchronized boolean append(long term, Command<T> command) {
+      return append(new Entry<T>(term, lastIndex + 1, command));
    }
 
    /**
     * Get an entry from our log, by index
     */
-   public Entry<T> getEntry(long index) {
-      if (index <= lastEntryIndex) {
-         if (index >= firstEntryIndex) {
-            assert index - firstEntryIndex < Integer.MAX_VALUE;
-            return entries.get((int) (index - firstEntryIndex));
-         } else if (index >= snapshotEntryIndex) {
-            // we need to fetch from disk
+   public synchronized Entry<T> getEntry(long index) {
+      if (index <= lastIndex) {
+         if (index >= firstIndex) {
+            assert index - firstIndex < Integer.MAX_VALUE;
+            return entries.get((int) (index - firstIndex));
+         } else if (index >= snapshotIndex) {
+            // TODO: we need to fetch it from disk
          }
       }
       return null; // we don't have it!
    }
 
-   private void wipeConflictedEntries(long index) {
+   private synchronized void wipeConflictedEntries(long index) {
       // we have a conflict -- we need to throw away all entries from our log from this point on
-      while (lastEntryIndex >= index) {
-         entries.remove((int) (lastEntryIndex-- - firstEntryIndex));
+      while (lastIndex >= index) {
+         entries.remove((int) (lastIndex-- - firstIndex));
       }
-      state.restoreToIndex(index - 1);
-      lastEntryTerm = state.getTerm();
+      if (lastIndex > 0) {
+         lastTerm = getEntry(lastIndex).term;
+      } else {
+         lastTerm = 0;
+      }
    }
 
    public List<Entry<T>> getEntries() {
@@ -134,40 +127,36 @@ public class Log<T extends StateMachine> {
       return logWriter;
    }
 
-   public T getState() {
-      return state;
+   public synchronized long getFirstIndex() {
+      return firstIndex;
    }
 
-   public long getFirstEntryIndex() {
-      return firstEntryIndex;
+   public synchronized long getFirstTerm() {
+      return firstTerm;
    }
 
-   public long getFirstEntryTerm() {
-      return firstEntryTerm;
+   public synchronized long getLastIndex() {
+      return lastIndex;
    }
 
-   public long getLastEntryIndex() {
-      return lastEntryIndex;
+   public synchronized long getLastTerm() {
+      return lastTerm;
    }
 
-   public long getLastEntryTerm() {
-      return lastEntryTerm;
+   public synchronized long getCommitIndex() {
+      return commitIndex;
    }
 
-   public long getCommitEntryIndex() {
-      return commitEntryIndex;
+   public synchronized long getCommitTerm() {
+      return commitTerm;
    }
 
-   public long getCommitEntryTerm() {
-      return commitEntryTerm;
+   public synchronized long getSnapshotIndex() {
+      return snapshotIndex;
    }
 
-   public long getSnapshotEntryIndex() {
-      return snapshotEntryIndex;
-   }
-
-   public long getSnapshotEntryTerm() {
-      return snapshotEntryTerm;
+   public synchronized long getSnapshotTerm() {
+      return snapshotTerm;
    }
 
 }

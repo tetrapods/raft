@@ -2,7 +2,7 @@ package io.tetrapod.raft;
 
 import java.io.*;
 
-public class Entry<T extends StateMachine> {
+public class Entry<T extends StateMachine<T>> {
 
    final long       term;
    final long       index;
@@ -16,8 +16,7 @@ public class Entry<T extends StateMachine> {
 
    /**
     * Read this command to from an input stream
-    */
-   @SuppressWarnings("unchecked")
+    */ 
    public Entry(DataInputStream in, T state) throws IOException {
       term = in.readLong();
       index = in.readLong();

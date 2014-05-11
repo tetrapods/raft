@@ -30,16 +30,18 @@ public class LogTest {
 
    @Test
    public void testLog() {
+      TestStateMachine state = new TestStateMachine();
+
       // create a log
-      Log<TestStateMachine> log = new Log<>(logDir, new TestStateMachine());
+      Log<TestStateMachine> log = new Log<>(logDir);
 
       // write a bunch of entries
       for (int i = 0; i < 10; i++) {
-         log.append(1, log.getState().makeNewCommand());
+         log.append(1, state.makeNewCommand());
       }
 
-      Assert.assertEquals(1, log.getFirstEntryIndex());
-      Assert.assertEquals(10, log.getLastEntryIndex());
+      Assert.assertEquals(1, log.getFirstIndex());
+      Assert.assertEquals(10, log.getLastIndex());
 
       // test getting all of the entries by index and edges
       Assert.assertNull(log.getEntry(0));
@@ -52,11 +54,11 @@ public class LogTest {
       Assert.assertNull(log.getEntry(11));
 
       // make sure we can append a higher term
-      Assert.assertTrue(log.append(new Entry<TestStateMachine>(2, 11, log.getState().makeNewCommand())));
+      Assert.assertTrue(log.append(new Entry<TestStateMachine>(2, 11, state.makeNewCommand())));
       Assert.assertNotNull(log.getEntry(11));
 
       // make sure we cannot append a lower term
-      Assert.assertFalse(log.append(new Entry<TestStateMachine>(1, 12, log.getState().makeNewCommand())));
+      Assert.assertFalse(log.append(new Entry<TestStateMachine>(1, 12, state.makeNewCommand())));
       Assert.assertNull(log.getEntry(12));
 
    }

@@ -1,0 +1,14 @@
+<configuration debug="true" scan="false"> 
+
+	<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+		<encoder>
+			<pattern>%d{HH:mm:ss.SSS} %-5level %24thread{24} - %16logger{0} - %msg%n</pattern>
+		</encoder>
+	</appender>
+
+	<root level="DEBUG">
+		<appender-ref ref="STDOUT" /> 
+	</root>
+	
+</configuration>
+   

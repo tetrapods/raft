@@ -5,7 +5,7 @@ import java.io.*;
 /**
  * A command deterministically updates a state machine
  */
-public interface Command<T extends StateMachine> {
+public interface Command<T extends StateMachine<T>> {
 
    /**
     * Based on this command, deterministically update the state machine

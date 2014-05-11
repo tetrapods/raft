@@ -8,7 +8,7 @@ import java.security.SecureRandom;
  * 
  * It maintains a checksum that, when fed random data in commands, will signal any error in application order.
  */
-public class TestStateMachine extends StateMachine {
+public class TestStateMachine extends StateMachine<TestStateMachine> {
    public SecureRandom random   = new SecureRandom();
 
    public long         checksum = 0;
@@ -18,8 +18,19 @@ public class TestStateMachine extends StateMachine {
       return new TestCommand(random.nextLong());
    }
 
+   @Override
+   public Command<TestStateMachine> makeCommand(int id) {
+      switch (id) {
+         case 1:
+            return new TestCommand();
+      }
+      return null;
+   }
+
    public class TestCommand implements Command<TestStateMachine> {
       private long val;
+
+      public TestCommand() {}
 
       public TestCommand(long val) {
          this.val = val;
@@ -43,6 +54,6 @@ public class TestStateMachine extends StateMachine {
       public int getCommandType() {
          return 1;
       }
-
    }
+
 }
