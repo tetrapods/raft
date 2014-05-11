@@ -10,6 +10,17 @@ import java.util.*;
 
 import org.slf4j.*;
 
+/**
+ * Major TODOS:
+ * <ul>
+ * <li>LogWriter - read/write log files</li>
+ * <li>State Snapshots and Log Compaction</li>
+ * <li>Snapshot Transfers</li>
+ * <li>Client RPC handling</li>
+ * <li>Cluster membership changes</li>
+ * </ul>
+ */
+
 public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
 
    public static final Logger logger                         = LoggerFactory.getLogger(RaftEngine.class);
@@ -141,7 +152,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       t.start();
    }
 
-   private void updateStateMachine(long index) {
+   private synchronized void updateStateMachine(long index) {
       while (index > stateMachine.getIndex()) {
          final Entry<T> e = log.getEntry(stateMachine.getIndex() + 1);
          e.command.applyTo(stateMachine);
@@ -212,7 +223,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       for (Peer peer : peers.values()) {
          peer.nextIndex = 1;
          peer.matchIndex = 0;
-         rpc.sendRequestVote(peer.peerId, currentTerm, myPeerId, log.getLastIndex(), log.getLastTerm(),
+         rpc.sendRequestVote(clusterName, peer.peerId, currentTerm, myPeerId, log.getLastIndex(), log.getLastTerm(),
                new RaftRPC.RequestVoteResponseHandler() {
                   @Override
                   public void handleResponse(long term, boolean voteGranted) {
@@ -235,7 +246,12 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
    }
 
    @Override
-   public synchronized RequestVoteResponse handleRequestVote(long term, int candidateId, long lastLogIndex, long lastLogTerm) {
+   public synchronized RequestVoteResponse handleRequestVote(String clusterName, long term, int candidateId, long lastLogIndex,
+         long lastLogTerm) {
+      if (!this.clusterName.equals(clusterName)) {
+         return new RequestVoteResponse(-1, false);
+      }
+
       if (term > currentTerm) {
          stepDown(term);
       }

@@ -6,13 +6,13 @@ package io.tetrapod.raft;
 public interface RaftRPC {
 
    public interface Requests {
-      public RequestVoteResponse handleRequestVote(long term, int candidateId, long lastLogIndex, long lastLogTerm);
+      public RequestVoteResponse handleRequestVote(String clusterName, long term, int candidateId, long lastLogIndex, long lastLogTerm);
 
       public AppendEntriesResponse handleAppendEntries(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<?>[] entries,
             long leaderCommit);
    }
 
-   public void sendRequestVote(int peerId, long term, int candidateId, long lastLogIndex, long lastLogTerm,
+   public void sendRequestVote(String clusterName, int peerId, long term, int candidateId, long lastLogIndex, long lastLogTerm,
          RequestVoteResponseHandler handler);
 
    public interface RequestVoteResponseHandler {

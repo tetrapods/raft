@@ -84,9 +84,9 @@ public class RaftEngineTester implements RaftRPC {
             sleep(1000);
             logger.info("=====================================================================================================================");
             for (RaftEngine<?> raft : rafts.values()) {
-               logger.info(String.format("%d) %9s term=%d, lastIndex=%d, lastTerm=%d commitIndex=%d, %s", raft.getPeerId(), raft
-                     .getRole(), raft.getCurrentTerm(), raft.getLog().getLastIndex(), raft.getLog().getLastTerm(), raft.getLog()
-                     .getCommitIndex(), raft.getStateMachine()));
+               logger.info(String.format("%d) %9s term=%d, lastIndex=%d, lastTerm=%d commitIndex=%d, %s", raft.getPeerId(), raft.getRole(),
+                     raft.getCurrentTerm(), raft.getLog().getLastIndex(), raft.getLog().getLastTerm(), raft.getLog().getCommitIndex(),
+                     raft.getStateMachine()));
             }
             logger.info("=====================================================================================================================");
             logger.info("");
@@ -143,14 +143,14 @@ public class RaftEngineTester implements RaftRPC {
    }
 
    @Override
-   public void sendRequestVote(int peerId, final long term, final int candidateId, final long lastLogIndex, final long lastLogTerm,
-         final RequestVoteResponseHandler handler) {
+   public void sendRequestVote(final String clusterName, int peerId, final long term, final int candidateId, final long lastLogIndex,
+         final long lastLogTerm, final RequestVoteResponseHandler handler) {
       final RaftEngine<?> r = rafts.get(peerId);
       if (r != null) {
          executor.schedule(new Runnable() {
             public void run() {
                try {
-                  final RequestVoteResponse res = r.handleRequestVote(term, candidateId, lastLogIndex, lastLogTerm);
+                  final RequestVoteResponse res = r.handleRequestVote(clusterName, term, candidateId, lastLogIndex, lastLogTerm);
                   executor.schedule(new Runnable() {
                      public void run() {
                         try {
