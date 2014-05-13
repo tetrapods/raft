@@ -29,11 +29,11 @@ public class LogTest {
    }
 
    @Test
-   public void testLog() {
+   public void testLog() throws Exception {
       TestStateMachine state = new TestStateMachine();
 
       // create a log
-      Log<TestStateMachine> log = new Log<>(logDir);
+      Log<TestStateMachine> log = new Log<>(logDir, state);
 
       // write a bunch of entries
       for (int i = 0; i < 10; i++) {
@@ -61,5 +61,26 @@ public class LogTest {
       Assert.assertFalse(log.append(new Entry<TestStateMachine>(1, 12, state.makeNewCommand())));
       Assert.assertNull(log.getEntry(12));
 
+      for (Entry<TestStateMachine> e : log.getEntries()) {
+         e.command.applyTo(state);
+      }
+      long checksum = state.getCheckSum();
+      logger.info("State = {}", state);
+
+      log.stop();
+
+      Thread.sleep(1000);
+
+      // create a new log
+
+      state = new TestStateMachine();
+      log = new Log<>(logDir, state);
+      Assert.assertEquals(1, log.getFirstIndex());
+      Assert.assertEquals(11, log.getLastIndex());
+      for (Entry<TestStateMachine> e : log.getEntries()) {
+         e.command.applyTo(state);
+      }
+      Assert.assertEquals(checksum, state.getCheckSum());
+      logger.info("State = {}", state);
    }
 }

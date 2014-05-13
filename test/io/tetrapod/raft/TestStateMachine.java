@@ -14,6 +14,12 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
    private long         checksum = 0;
    private long         count    = 0;
 
+   public static class Factory implements StateMachine.Factory<TestStateMachine> {
+      public TestStateMachine makeStateMachine() {
+         return new TestStateMachine();
+      }
+   }
+
    public TestCommand makeNewCommand() {
       return new TestCommand(random.nextLong());
    }
@@ -23,10 +29,15 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
    }
 
    @Override
-   public void reset() {
-      super.reset();
-      checksum = 0;
-      count = 0;
+   public void saveState(DataOutputStream out) throws IOException {
+      out.writeLong(count);
+      out.writeLong(checksum);
+   }
+
+   @Override
+   public void loadState(DataInputStream in) throws IOException {
+      count = in.readLong();
+      checksum = in.readLong();
    }
 
    @Override
@@ -37,14 +48,16 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
    @Override
    public Command<TestStateMachine> makeCommand(int id) {
       switch (id) {
-         case 1:
+         case TestCommand.COMMAND_ID:
             return new TestCommand();
       }
       return null;
    }
 
    public static class TestCommand implements Command<TestStateMachine> {
-      private long val;
+      public static final int COMMAND_ID = 1000;
+
+      private long            val;
 
       public TestCommand() {}
 
@@ -52,6 +65,10 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
          this.val = val;
       }
 
+      public long getVal() {
+         return val;
+      }
+      
       @Override
       public void applyTo(TestStateMachine state) {
          state.checksum ^= (val * ++state.count);
@@ -68,7 +85,7 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
 
       @Override
       public int getCommandType() {
-         return 1;
+         return COMMAND_ID;
       }
    }
 

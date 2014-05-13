@@ -27,7 +27,7 @@ public class Entry<T extends StateMachine<T>> {
    /**
     * Writes this entry to an output stream
     */
-   public void write(DataOutputStream out, T state) throws IOException {
+   public void write(DataOutputStream out) throws IOException {
       out.writeLong(term);
       out.writeLong(index);
       out.writeInt(command.getCommandType());

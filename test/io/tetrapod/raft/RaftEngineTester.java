@@ -1,7 +1,8 @@
 package io.tetrapod.raft;
 
+import io.tetrapod.raft.TestStateMachine.TestCommand;
+
 import java.io.*;
-import java.nio.file.Files;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.*;
@@ -15,22 +16,28 @@ import org.slf4j.*;
 public class RaftEngineTester implements RaftRPC {
 
    public static final Logger              logger    = LoggerFactory.getLogger(RaftEngineTester.class);
-   private static ScheduledExecutorService executor;
-   private static File                     logDir;
    private static final int                NUM_PEERS = 5;
+
+   private static ScheduledExecutorService executor;
+   private static File[]                   logDirs   = new File[NUM_PEERS];
 
    @BeforeClass
    public static void makeTestDir() throws IOException {
-      logDir = Files.createTempDirectory(null).toFile();
-      executor = Executors.newScheduledThreadPool(4);
+      for (int i = 0; i < NUM_PEERS; i++) {
+         logDirs[i] = new File("logs/test-" + (i + 1)); //Files.createTempDirectory(null).toFile();
+         logDirs[i].mkdirs();
+      }
+      executor = Executors.newScheduledThreadPool(NUM_PEERS);
    }
 
    @AfterClass
    public static void deleteTestDir() {
-      for (File file : logDir.listFiles()) {
-         file.delete();
-      }
-      logDir.delete();
+      //      for (int i = 0; i <  NUM_PEERS; i++) {
+      //         for (File file : logDirs[i].listFiles()) {
+      //            file.delete();
+      //         }
+      //         logDirs[i].delete();
+      //      }
       executor.shutdownNow();
    }
 
@@ -45,7 +52,7 @@ public class RaftEngineTester implements RaftRPC {
    @Test
    public void testRaftEngine() {
       for (int i = 1; i <= NUM_PEERS; i++) {
-         RaftEngine<TestStateMachine> raft = new RaftEngine<TestStateMachine>(logDir, "TEST", new TestStateMachine(), this);
+         RaftEngine<TestStateMachine> raft = new RaftEngine<TestStateMachine>(logDirs[i - 1], "TEST", new TestStateMachine.Factory(), this);
          raft.setPeerId(i);
          for (int j = 1; j <= NUM_PEERS; j++) {
             if (j != i) {
@@ -59,8 +66,13 @@ public class RaftEngineTester implements RaftRPC {
          raft.start();
       }
 
+      logRafts();
+      sleep(5000);
+      logRafts();
+
       Thread t = new Thread(new Runnable() {
          public void run() {
+            sleep(3000);
             while (true) {
                try {
                   synchronized (rafts) {
@@ -77,63 +89,94 @@ public class RaftEngineTester implements RaftRPC {
       });
       t.start();
 
+      sleep(1000);
+
       // WARNING: this will currently run until OOM since we don't have log compaction or journaling yet
       while (true) {
 
          synchronized (rafts) {
             sleep(1000);
-            logger.info("=====================================================================================================================");
-            for (RaftEngine<?> raft : rafts.values()) {
-               logger.info(String.format("%d) %9s term=%d, lastIndex=%d, lastTerm=%d commitIndex=%d, %s", raft.getPeerId(), raft.getRole(),
-                     raft.getCurrentTerm(), raft.getLog().getLastIndex(), raft.getLog().getLastTerm(), raft.getLog().getCommitIndex(),
-                     raft.getStateMachine()));
-            }
-            logger.info("=====================================================================================================================");
-            logger.info("");
-
-            for (RaftEngine<TestStateMachine> r1 : rafts.values()) {
-               for (RaftEngine<TestStateMachine> r2 : rafts.values()) {
-                  if (r2 != r1) {
-                     synchronized (r1.getStateMachine()) {
-                        synchronized (r1.getStateMachine()) {
-                           if (r1.getStateMachine().getIndex() == r2.getStateMachine().getIndex()) {
-                              Assert.assertEquals(r1.getStateMachine().getCheckSum(), r2.getStateMachine().getCheckSum());
-                           }
-                        }
-                     }
-                  }
-               }
-            }
-
+            logRafts();
          }
 
          sleep(1000);
 
-         if (dead == null) {
-            if (random.nextDouble() < 0.1) {
-               List<Integer> items = new ArrayList<Integer>(rafts.keySet());
-               int peerId = items.get(random.nextInt(items.size()));
-               synchronized (rafts) {
-                  dead = rafts.remove(peerId);
-               }
-               logger.info("Killing {}", dead);
-               dead.stop();
-            }
-         } else {
-            if (random.nextDouble() < 0.25) {
-               synchronized (rafts) {
-                  rafts.put(dead.getPeerId(), dead);
-               }
-               logger.info("Reviving {}", dead);
-               dead.start();
-               dead.DEBUG = true;
-               dead = null;
+         //         if (dead == null) {
+         //            if (random.nextDouble() < 0.1) {
+         //               List<Integer> items = new ArrayList<Integer>(rafts.keySet());
+         //               int peerId = items.get(random.nextInt(items.size()));
+         //               synchronized (rafts) {
+         //                  dead = rafts.remove(peerId);
+         //               }
+         //               logger.info("Killing {}", dead);
+         //               dead.stop();
+         //            }
+         //         } else {
+         //            if (random.nextDouble() < 0.25) {
+         //               synchronized (rafts) {
+         //                  rafts.put(dead.getPeerId(), dead);
+         //               }
+         //               logger.info("Reviving {}", dead);
+         //               dead.start();
+         //               dead.DEBUG = true;
+         //               dead = null;
+         //
+         //            }
+         //         }
 
-            }
-         }
-
+         sleep(1000);
       }
 
+   }
+
+   private void checkConsistency() {
+
+      for (RaftEngine<TestStateMachine> r1 : rafts.values()) {
+         for (RaftEngine<TestStateMachine> r2 : rafts.values()) {
+            if (r2 != r1) {
+               synchronized (r1.getStateMachine()) {
+                  synchronized (r1.getStateMachine()) {
+                     if (r1.getStateMachine().getIndex() == r2.getStateMachine().getIndex()) {
+                        Assert.assertEquals(r1.getStateMachine().getCheckSum(), r2.getStateMachine().getCheckSum());
+                     }
+                  }
+               }
+            }
+         }
+      }
+
+      long maxIndex = 0;
+      for (RaftEngine<TestStateMachine> raft : rafts.values()) {
+         maxIndex = Math.max(raft.getLog().getLastIndex(), maxIndex);
+      }
+      for (long index = 1; index <= maxIndex; index++) {
+         Entry<TestStateMachine> entry = null;
+         for (RaftEngine<TestStateMachine> raft : rafts.values()) {
+            if (entry == null) {
+               entry = raft.getLog().getEntry(index);
+            } else {
+               Entry<TestStateMachine> e = raft.getLog().getEntry(index);
+               if (e != null) {                
+                  Assert.assertEquals(entry.index, e.index);
+                  Assert.assertEquals(entry.term, e.term);
+                  Assert.assertEquals(((TestCommand) entry.command).getVal(), ((TestCommand) e.command).getVal());
+               }
+            }
+         }
+      }
+
+   }
+
+   private void logRafts() {
+      logger.info("=====================================================================================================================");
+      for (RaftEngine<?> raft : rafts.values()) {
+         logger.info(String.format("%d) %9s term=%d, lastIndex=%d, lastTerm=%d commitIndex=%d, %s", raft.getPeerId(), raft.getRole(),
+               raft.getCurrentTerm(), raft.getLog().getLastIndex(), raft.getLog().getLastTerm(), raft.getLog().getCommitIndex(),
+               raft.getStateMachine()));
+      }
+      logger.info("=====================================================================================================================");
+      logger.info("");
+      checkConsistency();
    }
 
    private void sleep(int millis) {

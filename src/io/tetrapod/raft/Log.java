@@ -1,6 +1,6 @@
 package io.tetrapod.raft;
 
-import java.io.File;
+import java.io.*;
 import java.util.*;
 
 import org.slf4j.*;
@@ -11,12 +11,14 @@ import org.slf4j.*;
  */
 public class Log<T extends StateMachine<T>> {
 
-   public static final Logger   logger        = LoggerFactory.getLogger(Log.class);
+   public static final Logger   logger           = LoggerFactory.getLogger(Log.class);
+
+   public static final int      LOG_FILE_VERSION = 1;
 
    /**
     * The log's in-memory buffer of log entries
     */
-   private final List<Entry<T>> entries       = new ArrayList<>();
+   private final List<Entry<T>> entries          = new ArrayList<>();
 
    /**
     * The directory where we will read and write raft data files
@@ -24,25 +26,36 @@ public class Log<T extends StateMachine<T>> {
    private final File           logDirectory;
 
    /**
-    * Handlers serialization of the log to disk
+    * Our current journal file's output stream
     */
-   private final LogWriter      logWriter;
+   private DataOutputStream     out;
+   private final Object         logLock          = new Object();
+   private boolean              running          = true;
 
    // We keep some key index & term variables that may or 
    // may not be in our buffer and are accessed frequently:
 
-   private long                 firstIndex    = 0;
-   private long                 firstTerm     = 0;
-   private long                 lastIndex     = 0;
-   private long                 lastTerm      = 0;
-   private long                 commitIndex   = 0;
-   private long                 snapshotIndex = 0;
-   private long                 snapshotTerm  = 0;
+   private long                 firstIndex       = 0;
+   private long                 firstTerm        = 0;
+   private long                 lastIndex        = 0;
+   private long                 lastTerm         = 0;
+   private long                 snapshotIndex    = 0;
+   private long                 snapshotTerm     = 0;
+   private long                 commitIndex      = 0;
+   private long                 diskIndex        = 0;
 
-   public Log(File logDir) {
+   public Log(File logDir, T stateMachine) {
       this.logDirectory = logDir;
       this.logDirectory.mkdirs();
-      this.logWriter = new LogWriter(logDirectory);
+
+      readLog(stateMachine);
+
+      final Thread t = new Thread(new Runnable() {
+         public void run() {
+            writeLoop();
+         }
+      }, "Raft Log Writer");
+      t.start();
    }
 
    /**
@@ -56,6 +69,7 @@ public class Log<T extends StateMachine<T>> {
          final Entry<T> oldEntry = getEntry(entry.index);
          if (oldEntry.term != entry.term) {
             logger.warn("Log is conflicted at {}", oldEntry);
+            assert entry.index > commitIndex;
             wipeConflictedEntries(oldEntry.index);
          } else {
             return true; // we already have this entry
@@ -98,7 +112,7 @@ public class Log<T extends StateMachine<T>> {
             assert index - firstIndex < Integer.MAX_VALUE;
             return entries.get((int) (index - firstIndex));
          } else if (index > snapshotIndex) {
-            // TODO: we need to fetch it from disk
+            // we could fetch it from disk, if we still have it on file
          }
       }
       return null; // we don't have it!
@@ -112,6 +126,9 @@ public class Log<T extends StateMachine<T>> {
       final Entry<T>[] list = (Entry<T>[]) new Entry<?>[(int) Math.min(maxEntries, (lastIndex - fromIndex) + 1)];
       for (int i = 0; i < list.length; i++) {
          list[i] = getEntry(fromIndex + i);
+         if (list[i] == null) {
+            logger.warn("Could not find log entry {}", fromIndex + i);
+         }
          assert list[i] != null;
       }
       return list;
@@ -148,10 +165,6 @@ public class Log<T extends StateMachine<T>> {
       return logDirectory;
    }
 
-   public LogWriter getLogWriter() {
-      return logWriter;
-   }
-
    public synchronized long getFirstIndex() {
       return firstIndex;
    }
@@ -170,6 +183,12 @@ public class Log<T extends StateMachine<T>> {
 
    public synchronized long getCommitIndex() {
       return commitIndex;
+   }
+
+   public long getDiskIndex() {
+      synchronized (logLock) {
+         return diskIndex;
+      }
    }
 
    public synchronized void setCommitIndex(long index) {
@@ -195,6 +214,82 @@ public class Log<T extends StateMachine<T>> {
       }
       final Entry<T> entry = getEntry(index);
       return (entry != null && entry.term == term);
+   }
+
+   public synchronized boolean isRunning() {
+      return running;
+   }
+
+   public void stop() {
+      synchronized (this) {
+         running = false;
+      }
+      try {
+         writeLog();
+         out.close();
+         out = null;
+      } catch (Throwable t) {
+         logger.error(t.getMessage(), t);
+      }
+   }
+
+   private void writeLoop() {
+      while (isRunning()) {
+         try {
+            writeLog();
+            synchronized (this) {
+               wait(1000);
+            }
+         } catch (Throwable t) {
+            logger.error(t.getMessage(), t);
+         }
+      }
+   }
+
+   private void writeLog() throws IOException {
+      synchronized (logLock) {
+         if (diskIndex == 0 && firstIndex > 0) {
+            diskIndex = firstIndex - 1;
+         }
+
+         if (out == null) {
+            File file = new File(getLogDirectory(), "raft.log");
+            if (file.exists()) {
+               file.renameTo(new File(getLogDirectory(), "raft.old.log"));
+            }
+            logger.info("Raft Log File : {}", file.getAbsolutePath());
+            out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(file)));
+            out.writeInt(LOG_FILE_VERSION);
+         }
+
+         while (diskIndex < commitIndex) {
+            final Entry<T> entry = getEntry(diskIndex + 1);
+            entry.write(out);
+            diskIndex = entry.index;
+         }
+         out.flush();
+      }
+   }
+
+   private void readLog(T stateMachine) {
+      File file = new File(getLogDirectory(), "raft.log");
+      if (file.exists()) {
+         try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(file)))) {
+            int version = in.readInt();
+            assert (version <= LOG_FILE_VERSION);
+            while (true) {
+               Entry<T> entry = new Entry<T>(in, stateMachine);
+               if (!append(entry)) {
+                  logger.warn("Failed to append entry from our own log {} ", entry);
+                  throw new RuntimeException("Failed to append entry from our own log");
+               }
+            }
+         } catch (EOFException t) {
+            logger.info("Read {} from {}", entries.size(), file);
+         } catch (Throwable t) {
+            logger.error(t.getMessage(), t);
+         }
+      }
    }
 
 }
