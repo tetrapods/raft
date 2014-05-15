@@ -16,6 +16,7 @@ import org.slf4j.*;
  * <li>Snapshot Transfers</li>
  * <li>Client RPC handling</li>
  * <li>Cluster membership changes</li>
+ * <li>Cluster Configuration</li>
  * </ul>
  */
 

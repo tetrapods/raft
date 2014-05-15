@@ -8,15 +8,23 @@ import org.slf4j.*;
 /**
  * A raft log is the backbone of the raft algorithm. It stores an ordered list of commands that have been agreed upon by consensus, as well
  * as the tentative list of future commands yet to be confirmed.
+ * 
+ * 
+ * <ul>
+ * <li> TODO: Add a proper file lock so we can ensure only one raft process to a raft-dir</li>
+ * <li> TODO: Make constants configurable 
+ * </ul>
+ * 
  */
 public class Log<T extends StateMachine<T>> {
 
    public static final Logger   logger                   = LoggerFactory.getLogger(Log.class);
 
    public static final int      LOG_FILE_VERSION         = 1;
-
+ 
    public static final int      NUM_ENTRIES_PER_LOGFILE  = 0x2000;
    public static final int      NUM_ENTRIES_PER_SNAPSHOT = 0x10000;
+   public static final boolean  DELETE_OLD_FILES         = true;
 
    /**
     * The log's in-memory buffer of log entries
@@ -401,6 +409,21 @@ public class Log<T extends StateMachine<T>> {
          firstTerm = first.term;
          logger.info("Compacted log new size = {}", entries.size());
       }
+
+      if (DELETE_OLD_FILES) {
+         long index = commitIndex - (NUM_ENTRIES_PER_SNAPSHOT * 2);
+         while (index > 0) {
+            File file = getFile(index);
+            if (file.exists()) {
+               logger.info("Deleting old log file {}", file);
+               file.delete();
+            } else {
+               break;
+            }
+            index -= NUM_ENTRIES_PER_LOGFILE;
+         }
+      }
+
    }
 
    /**
