@@ -16,7 +16,7 @@ import org.slf4j.*;
 public class RaftEngineTester implements RaftRPC {
 
    public static final Logger              logger    = LoggerFactory.getLogger(RaftEngineTester.class);
-   private static final int                NUM_PEERS = 5;
+   private static final int                NUM_PEERS = 3;
 
    private static ScheduledExecutorService executor;
    private static File[]                   logDirs   = new File[NUM_PEERS];
@@ -50,7 +50,7 @@ public class RaftEngineTester implements RaftRPC {
    private SecureRandom                               random = new SecureRandom();
 
    @Test
-   public void testRaftEngine() {
+   public void testRaftEngine() throws IOException {
       for (int i = 1; i <= NUM_PEERS; i++) {
          RaftEngine<TestStateMachine> raft = new RaftEngine<TestStateMachine>(logDirs[i - 1], "TEST", new TestStateMachine.Factory(), this);
          raft.setPeerId(i);
@@ -146,10 +146,12 @@ public class RaftEngineTester implements RaftRPC {
       }
 
       long maxIndex = 0;
+      long minIndex = Integer.MAX_VALUE;
       for (RaftEngine<TestStateMachine> raft : rafts.values()) {
          maxIndex = Math.max(raft.getLog().getLastIndex(), maxIndex);
+         minIndex = Math.min(raft.getLog().getFirstIndex(), minIndex);
       }
-      for (long index = 1; index <= maxIndex; index++) {
+      for (long index = minIndex; index <= maxIndex; index++) {
          Entry<TestStateMachine> entry = null;
          for (RaftEngine<TestStateMachine> raft : rafts.values()) {
             if (entry == null) {
@@ -172,7 +174,7 @@ public class RaftEngineTester implements RaftRPC {
       for (RaftEngine<?> raft : rafts.values()) {
          logger.info(String.format("%d) %9s term=%d, lastIndex=%d, lastTerm=%d commitIndex=%d, %s", raft.getPeerId(), raft.getRole(),
                raft.getCurrentTerm(), raft.getLog().getLastIndex(), raft.getLog().getLastTerm(), raft.getLog().getCommitIndex(),
-               raft.getStateMachine()));
+               raft.getStateMachine(), raft.getLog().getEntries().size()));
       }
       logger.info("=====================================================================================================================");
       logger.info("");

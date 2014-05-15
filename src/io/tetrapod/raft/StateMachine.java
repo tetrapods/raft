@@ -9,14 +9,35 @@ import java.util.zip.*;
  * It contains the state we want to coordinate across a distributed cluster.
  */
 public abstract class StateMachine<T extends StateMachine<T>> {
-   public static final int  SNAPSHOT_FILE_VERSION = 1;
+   public static final int SNAPSHOT_FILE_VERSION = 1;
 
-   private long             index;
-   private long             term;
+   public enum SnapshotMode {
+      /**
+       * Blocking mode is memory efficient, but blocks all changes while writing the snapshot. Only suitable for small state machines that
+       * can write out very quickly
+       */
+      Blocking,
 
-   private volatile boolean loading               = false;
+      /**
+       * Dedicated mode maintains an entire secondary copy of the state machine in memory for snapshots. This allows easy non-blocking
+       * snapshots, at the expense of using more memory to hold the second state machine, and the processing time to apply commands twice.
+       */
+      Dedicated,
+
+      /**
+       * If your state machine can support copy-on-writes, this is the most efficient mode for non-blocking snapshots
+       */
+      CopyOnWrite
+   }
+
+   private long index;
+   private long term;
 
    public StateMachine() {}
+
+   public SnapshotMode getSnapshotMode() {
+      return SnapshotMode.Blocking;
+   }
 
    public abstract Command<T> makeCommand(int id);
 
@@ -34,20 +55,13 @@ public abstract class StateMachine<T extends StateMachine<T>> {
    }
 
    public void readSnapshot(File file) throws IOException {
-      loading = true;
       try (DataInputStream in = new DataInputStream(new GZIPInputStream(new BufferedInputStream(new FileInputStream(file))))) {
          int version = in.readInt();
          assert (version <= SNAPSHOT_FILE_VERSION);
          term = in.readLong();
          index = in.readLong();
          loadState(in);
-      } finally {
-         loading = false;
       }
-   }
-
-   public boolean isLoading() {
-      return loading;
    }
 
    public long getIndex() {
@@ -58,11 +72,13 @@ public abstract class StateMachine<T extends StateMachine<T>> {
       return term;
    }
 
-   protected void apply(long index, long term) {
-      assert (this.index + 1 == index);
-      assert (this.term <= term);
-      this.index = index;
-      this.term = term;
+   @SuppressWarnings("unchecked")
+   protected void apply(Entry<T> entry) {      
+      assert (this.index + 1 == entry.index) : (this.index + 1) +"!="+ entry.index;
+      assert (this.term <= entry.term);
+      entry.command.applyTo((T)this);
+      this.index = entry.index;
+      this.term = entry.term;
    }
 
    public static interface Factory<T> {

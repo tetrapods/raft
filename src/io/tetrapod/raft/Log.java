@@ -11,14 +11,17 @@ import org.slf4j.*;
  */
 public class Log<T extends StateMachine<T>> {
 
-   public static final Logger   logger           = LoggerFactory.getLogger(Log.class);
+   public static final Logger   logger                   = LoggerFactory.getLogger(Log.class);
 
-   public static final int      LOG_FILE_VERSION = 1;
+   public static final int      LOG_FILE_VERSION         = 1;
+
+   public static final int      NUM_ENTRIES_PER_LOGFILE  = 0x2000;
+   public static final int      NUM_ENTRIES_PER_SNAPSHOT = 0x10000;
 
    /**
     * The log's in-memory buffer of log entries
     */
-   private final List<Entry<T>> entries          = new ArrayList<>();
+   private final List<Entry<T>> entries                  = new ArrayList<>();
 
    /**
     * The directory where we will read and write raft data files
@@ -29,26 +32,30 @@ public class Log<T extends StateMachine<T>> {
     * Our current journal file's output stream
     */
    private DataOutputStream     out;
-   private final Object         logLock          = new Object();
-   private boolean              running          = true;
+   private boolean              running                  = true;
 
    // We keep some key index & term variables that may or 
    // may not be in our buffer and are accessed frequently:
 
-   private long                 firstIndex       = 0;
-   private long                 firstTerm        = 0;
-   private long                 lastIndex        = 0;
-   private long                 lastTerm         = 0;
-   private long                 snapshotIndex    = 0;
-   private long                 snapshotTerm     = 0;
-   private long                 commitIndex      = 0;
-   private long                 diskIndex        = 0;
+   private long                 firstIndex               = 0;
+   private long                 firstTerm                = 0;
+   private long                 lastIndex                = 0;
+   private long                 lastTerm                 = 0;
+   private long                 commitIndex              = 0;
 
-   public Log(File logDir, T stateMachine) {
+   /**
+    * The state machine we are coordinating via raft
+    */
+   private final T              stateMachine;
+
+   public Log(File logDir, T stateMachine) throws IOException {
+      this.stateMachine = stateMachine;
       this.logDirectory = logDir;
       this.logDirectory.mkdirs();
 
-      readLog(stateMachine);
+      loadSnapshot();
+      replayLogs();
+      updateStateMachine();
 
       final Thread t = new Thread(new Runnable() {
          public void run() {
@@ -56,6 +63,10 @@ public class Log<T extends StateMachine<T>> {
          }
       }, "Raft Log Writer");
       t.start();
+   }
+
+   public synchronized T getStateMachine() {
+      return stateMachine;
    }
 
    /**
@@ -66,11 +77,10 @@ public class Log<T extends StateMachine<T>> {
    public synchronized boolean append(Entry<T> entry) {
       // check if the entry is already in our log
       if (entry.index <= lastIndex) {
-         final Entry<T> oldEntry = getEntry(entry.index);
-         if (oldEntry.term != entry.term) {
-            logger.warn("Log is conflicted at {}", oldEntry);
-            assert entry.index > commitIndex;
-            wipeConflictedEntries(oldEntry.index);
+         assert entry.index > commitIndex;
+         if (getTerm(entry.index) != entry.term) {
+            logger.warn("Log is conflicted at {} : {} ", entry, getTerm(entry.index));
+            wipeConflictedEntries(entry.index);
          } else {
             return true; // we already have this entry
          }
@@ -84,6 +94,7 @@ public class Log<T extends StateMachine<T>> {
 
          // update our indexes
          if (firstIndex == 0) {
+            assert (entries.size() == 1);
             firstIndex = entry.index;
             firstTerm = entry.term;
          }
@@ -107,12 +118,13 @@ public class Log<T extends StateMachine<T>> {
     * Get an entry from our log, by index
     */
    public synchronized Entry<T> getEntry(long index) {
-      if (index <= lastIndex) {
+      if (index > 0 && index <= lastIndex) {
          if (index >= firstIndex) {
             assert index - firstIndex < Integer.MAX_VALUE;
+            assert (index - firstIndex) < entries.size() : "index=" + index + ", first=" + firstIndex;
             return entries.get((int) (index - firstIndex));
-         } else if (index > snapshotIndex) {
-            // we could fetch it from disk, if we still have it on file
+         } else {
+            return getEntryFromDisk(index);
          }
       }
       return null; // we don't have it!
@@ -135,14 +147,10 @@ public class Log<T extends StateMachine<T>> {
    }
 
    public long getTerm(long index) {
-      if (index > snapshotIndex) {
-         return getEntry(index).term;
-      } else if (index > snapshotIndex) {
-         return snapshotTerm;
-      } else if (index == 0) {
+      if (index == 0) {
          return 0;
       }
-      return -1; // maybe throw exception?
+      return getEntry(index).term;
    }
 
    private synchronized void wipeConflictedEntries(long index) {
@@ -185,22 +193,8 @@ public class Log<T extends StateMachine<T>> {
       return commitIndex;
    }
 
-   public long getDiskIndex() {
-      synchronized (logLock) {
-         return diskIndex;
-      }
-   }
-
    public synchronized void setCommitIndex(long index) {
       commitIndex = index;
-   }
-
-   public synchronized long getSnapshotIndex() {
-      return snapshotIndex;
-   }
-
-   public synchronized long getSnapshotTerm() {
-      return snapshotTerm;
    }
 
    /**
@@ -225,7 +219,7 @@ public class Log<T extends StateMachine<T>> {
          running = false;
       }
       try {
-         writeLog();
+         updateStateMachine();
          out.close();
          out = null;
       } catch (Throwable t) {
@@ -236,59 +230,193 @@ public class Log<T extends StateMachine<T>> {
    private void writeLoop() {
       while (isRunning()) {
          try {
-            writeLog();
+            updateStateMachine();
+            compact();
             synchronized (this) {
-               wait(1000);
+               wait(100);
             }
-         } catch (Throwable t) {
+         } catch (Exception t) {
             logger.error(t.getMessage(), t);
          }
       }
    }
 
-   private void writeLog() throws IOException {
-      synchronized (logLock) {
-         if (diskIndex == 0 && firstIndex > 0) {
-            diskIndex = firstIndex - 1;
-         }
+   /**
+    * Get the canonical file name for this index
+    */
+   private File getFile(long index) {
+      long firstIndexInFile = (index / NUM_ENTRIES_PER_LOGFILE) * NUM_ENTRIES_PER_LOGFILE;
+      return new File(logDirectory, String.format("%016X.log", firstIndexInFile));
+   }
 
-         if (out == null) {
-            File file = new File(getLogDirectory(), "raft.log");
-            if (file.exists()) {
-               file.renameTo(new File(getLogDirectory(), "raft.old.log"));
-            }
-            logger.info("Raft Log File : {}", file.getAbsolutePath());
-            out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(file)));
-            out.writeInt(LOG_FILE_VERSION);
+   private synchronized void ensureCorrectLogFile(long index) throws IOException {
+      if (index % NUM_ENTRIES_PER_LOGFILE == 0) {
+         if (out != null) {
+            out.close();
+            out = null;
          }
-
-         while (diskIndex < commitIndex) {
-            final Entry<T> entry = getEntry(diskIndex + 1);
-            entry.write(out);
-            diskIndex = entry.index;
+      }
+      if (out == null) {
+         File file = getFile(index);
+         if (file.exists()) {
+            file.renameTo(new File(getLogDirectory(), "old." + file.getName()));
          }
-         out.flush();
+         logger.info("Raft Log File : {}", file.getAbsolutePath());
+         out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(file)));
+         out.writeInt(LOG_FILE_VERSION);
       }
    }
 
-   private void readLog(T stateMachine) {
-      File file = new File(getLogDirectory(), "raft.log");
-      if (file.exists()) {
-         try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(file)))) {
-            int version = in.readInt();
-            assert (version <= LOG_FILE_VERSION);
-            while (true) {
-               Entry<T> entry = new Entry<T>(in, stateMachine);
-               if (!append(entry)) {
-                  logger.warn("Failed to append entry from our own log {} ", entry);
-                  throw new RuntimeException("Failed to append entry from our own log");
+   /**
+    * Applies log entries to our state machine until it is at the given index
+    */
+   private synchronized void updateStateMachine() {
+      try {
+         synchronized (stateMachine) {
+            while (commitIndex > stateMachine.getIndex()) {
+               final Entry<T> e = getEntry(stateMachine.getIndex() + 1);
+               assert (e != null);
+               stateMachine.apply(e);
+               ensureCorrectLogFile(e.index);
+               e.write(out);
+               if ((e.index % NUM_ENTRIES_PER_SNAPSHOT) == 0) {
+                  saveSnapshot();
                }
             }
-         } catch (EOFException t) {
-            logger.info("Read {} from {}", entries.size(), file);
-         } catch (Throwable t) {
-            logger.error(t.getMessage(), t);
          }
+      } catch (IOException e) {
+         logger.error(e.getMessage(), e);
+         running = false; // revisit this, but should probably halt
+      }
+   }
+
+   private synchronized void loadSnapshot() throws IOException {
+      File file = new File(logDirectory, "raft.snapshot");
+      if (file.exists()) {
+         logger.info("Loading snapshot {} ", file);
+         stateMachine.readSnapshot(file);
+         logger.info("Loaded snapshot @ {}:{}", stateMachine.getTerm(), stateMachine.getIndex());
+      }
+   }
+
+   /**
+    * Read and apply all available entries in the log from disk
+    * 
+    * @throws FileNotFoundException
+    */
+   private synchronized void replayLogs() throws IOException {
+      Entry<T> entry = null;
+      do {
+         entry = getEntryFromDisk(stateMachine.getIndex() + 1);
+         if (entry != null) {
+            stateMachine.apply(entry);
+         }
+      } while (entry != null);
+
+      // get the most recent file of entries
+      List<Entry<T>> list = loadLogFile(getFile(stateMachine.getIndex()));
+      if (list != null && list.size() > 0) {
+         assert (entries.size() == 0);
+         entries.addAll(list);
+         firstIndex = entries.get(0).index;
+         firstTerm = entries.get(0).term;
+         lastIndex = entries.get(entries.size() - 1).index;
+         lastTerm = entries.get(entries.size() - 1).term;
+         // TODO: rename existing file in case of failure
+         // re-write out the last file
+         out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(getFile(firstIndex))));
+         out.writeInt(LOG_FILE_VERSION);
+         for (Entry<T> e : list) {
+            e.write(out);
+         }
+      }
+   }
+
+   /**
+    * An LRU cache of entries loaded from disk
+    */
+   private final Map<String, List<Entry<T>>> entryFileCache = new LinkedHashMap<String, List<Entry<T>>>(3, 0.75f, true) {
+                                                               @Override
+                                                               protected boolean removeEldestEntry(Map.Entry<String, List<Entry<T>>> eldest) {
+                                                                  return size() > 2;
+                                                               }
+                                                            };
+
+   private Entry<T> getEntryFromDisk(long index) {
+      File file = getFile(index);
+      if (file.exists()) {
+         List<Entry<T>> list = loadLogFile(file);
+         if (list != null && list.size() > 0) {
+            int i = (int) (index - list.get(0).index);
+            assert i >= 0;
+            if (i >= 0 && i < list.size()) {
+               assert list.get(i).index == index;
+               return list.get(i);
+            }
+         }
+      }
+      return null;
+   }
+
+   public List<Entry<T>> loadLogFile(File file) {
+      synchronized (entryFileCache) {
+         List<Entry<T>> list = entryFileCache.get(file.getName());
+         if (list == null) {
+            list = new ArrayList<>();
+            if (file.exists()) {
+               try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(file)))) {
+                  final int version = in.readInt();
+                  assert (version <= LOG_FILE_VERSION);
+                  while (true) {
+                     list.add(new Entry<T>(in, stateMachine));
+                  }
+               } catch (EOFException t) {
+                  logger.debug("Read {} from {}", list.size(), file);
+               } catch (Throwable t) {
+                  logger.error(t.getMessage(), t);
+               }
+            }
+            entryFileCache.put(file.getName(), list);
+         }
+         return list;
+      }
+   }
+
+   /**
+    * Discards entries from our buffer that we no longer need to store in memory
+    */
+   private synchronized void compact() {
+      if (entries.size() > NUM_ENTRIES_PER_LOGFILE * 2) {
+         logger.info("Compacting log size = {}", entries.size());
+         List<Entry<T>> entriesToKeep = new ArrayList<>();
+         for (Entry<T> e : entries) {
+            if (e.index > commitIndex || e.index > stateMachine.getIndex() || e.index > lastIndex - NUM_ENTRIES_PER_LOGFILE) {
+               entriesToKeep.add(e);
+            }
+         }
+         entries.clear();
+         entries.addAll(entriesToKeep);
+         Entry<T> first = entries.get(0);
+         firstIndex = first.index;
+         firstTerm = first.term;
+         logger.info("Compacted log new size = {}", entries.size());
+      }
+   }
+
+   /**
+    * Currently is a pause-the-world snapshot
+    */
+   private long saveSnapshot() throws IOException {
+      // currently pauses the world to save a snapshot
+      File openFile = new File(logDirectory, "raft.open.snapshot");
+      synchronized (stateMachine) {
+         stateMachine.writeSnapshot(openFile);
+         File file = new File(logDirectory, "raft.snapshot");
+         if (file.exists()) {
+            file.renameTo(new File(logDirectory, "raft.old.snapshot"));
+         }
+         openFile.renameTo(file);
+         return stateMachine.getIndex();
       }
    }
 

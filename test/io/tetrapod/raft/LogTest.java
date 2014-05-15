@@ -46,7 +46,6 @@ public class LogTest {
       // test getting all of the entries by index and edges
       Assert.assertNull(log.getEntry(0));
       for (int i = 1; i <= 10; i++) {
-         logger.info("{}", i);
          Entry<TestStateMachine> e = log.getEntry(i);
          Assert.assertNotNull(e);
          Assert.assertEquals(i, e.index);
@@ -62,11 +61,11 @@ public class LogTest {
       Assert.assertNull(log.getEntry(12));
 
       for (Entry<TestStateMachine> e : log.getEntries()) {
-         e.command.applyTo(state);
+         state.apply(e);
       }
       long checksum = state.getCheckSum();
       logger.info("State = {}", state);
-
+      log.setCommitIndex(state.getIndex());
       log.stop();
 
       Thread.sleep(1000);
@@ -78,9 +77,35 @@ public class LogTest {
       Assert.assertEquals(1, log.getFirstIndex());
       Assert.assertEquals(11, log.getLastIndex());
       for (Entry<TestStateMachine> e : log.getEntries()) {
-         e.command.applyTo(state);
+         state.apply(e);
       }
       Assert.assertEquals(checksum, state.getCheckSum());
       logger.info("State = {}", state);
+
+      // write a bunch of entries
+      for (int i = 0; i < 10; i++) {
+         log.append(3, state.makeNewCommand());
+      }
+      Assert.assertEquals(1, log.getFirstIndex());
+      Assert.assertEquals(21, log.getLastIndex());
+
+      //      File snapFile = new File(logDir, "raft.snapshot");
+      //      state.writeSnapshot(snapFile);
+      //      log.compact(state.getIndex(), 0);
+      //      Assert.assertEquals(12, log.getFirstIndex());
+      //      Assert.assertEquals(21, log.getLastIndex());
+      //      log.setCommitIndex(log.getLastIndex());
+      //      log.stop();
+      //      Thread.sleep(1000);
+      //
+      //      state = new TestStateMachine();
+      //      state.readSnapshot(snapFile);      
+      //      Assert.assertEquals(checksum, state.getCheckSum());
+      //      Assert.assertEquals(state.getIndex(), 11);
+      //      log = new Log<>(logDir, state);
+      //
+      //      Assert.assertEquals(12, log.getFirstIndex());
+      //      Assert.assertEquals(21, log.getLastIndex());
+
    }
 }

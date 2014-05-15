@@ -89,4 +89,9 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
       }
    }
 
+   @Override
+   public SnapshotMode getSnapshotMode() {
+      return SnapshotMode.Blocking;
+   }
+
 }

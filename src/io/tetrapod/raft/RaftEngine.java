@@ -13,8 +13,6 @@ import org.slf4j.*;
 /**
  * Major TODOS:
  * <ul>
- * <li>LogWriter - read/write log files</li>
- * <li>State Snapshots and Log Compaction</li>
  * <li>Snapshot Transfers</li>
  * <li>Client RPC handling</li>
  * <li>Cluster membership changes</li>
@@ -37,28 +35,21 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       Joining, Observer, Follower, Candidate, Leader, Failed, Leaving
    }
 
-   public volatile boolean               DEBUG  = false;
+   public volatile boolean          DEBUG  = false;
 
-   public final SecureRandom             random = new SecureRandom();
-   private final Map<Integer, Peer>      peers  = new HashMap<Integer, Peer>();
-   private final Log<T>                  log;
-   private final RaftRPC                 rpc;
+   public final SecureRandom        random = new SecureRandom();
+   private final Map<Integer, Peer> peers  = new HashMap<Integer, Peer>();
+   private final Log<T>             log;
+   private final RaftRPC            rpc;
+   private final String             clusterName;
 
-   /**
-    * The state machine we are coordinating via raft
-    */
-   private final StateMachine.Factory<T> stateMachineFactory;
-   private final String                  clusterName;
-
-   private T                             stateMachine;
-
-   private Role                          role   = Role.Joining;
-   private int                           myPeerId;
-   private long                          currentTerm;
-   private int                           votedFor;
-   private int                           leaderId;
-   private long                          electionTimeout;
-   private long                          firstIndexOfTerm;
+   private Role                     role   = Role.Joining;
+   private int                      myPeerId;
+   private long                     currentTerm;
+   private int                      votedFor;
+   private int                      leaderId;
+   private long                     electionTimeout;
+   private long                     firstIndexOfTerm;
 
    public class Peer {
       private final int peerId;
@@ -80,13 +71,11 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       }
    }
 
-   public RaftEngine(File logDir, String clusterName, StateMachine.Factory<T> stateMachineFactory, RaftRPC rpc) {
+   public RaftEngine(File logDir, String clusterName, StateMachine.Factory<T> stateMachineFactory, RaftRPC rpc) throws IOException {
+      this.rpc = rpc;
+      this.clusterName = clusterName;
       this.log = new Log<T>(logDir, stateMachineFactory.makeStateMachine());
       this.currentTerm = log.getLastTerm();
-      this.rpc = rpc;
-      this.stateMachineFactory = stateMachineFactory;
-      this.clusterName = clusterName;
-      initStateMachine();
    }
 
    public synchronized void start() {
@@ -110,7 +99,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
    }
 
    public synchronized T getStateMachine() {
-      return stateMachine;
+      return log.getStateMachine();
    }
 
    public synchronized void setPeerId(int peerId) {
@@ -165,7 +154,9 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
     * Called periodically to do recurring work
     */
    private synchronized void runPeriodicTasks() {
-      updateStateMachine(log.getCommitIndex());
+      if (!log.isRunning() && role != Role.Leaving) {
+         role = Role.Failed;
+      }
 
       switch (role) {
          case Joining:
@@ -198,7 +189,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
                return true;
          }
       }
-      return false;
+      return count >= needed;
    }
 
    private synchronized void updateCommitIndex() {
@@ -225,27 +216,32 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       ++currentTerm;
       votedFor = myPeerId;
       logger.info("{} is calling an election (term {})", this, currentTerm);
-      for (Peer peer : peers.values()) {
-         peer.nextIndex = 1;
-         peer.matchIndex = 0;
-         rpc.sendRequestVote(clusterName, peer.peerId, currentTerm, myPeerId, log.getLastIndex(), log.getLastTerm(),
-               new RaftRPC.RequestVoteResponseHandler() {
-                  @Override
-                  public void handleResponse(long term, boolean voteGranted) {
-                     synchronized (RaftEngine.this) {
-                        if (!stepDown(term)) {
-                           if (term == currentTerm && role == Role.Candidate) {
-                              if (voteGranted) {
-                                 votes.val++;
-                              }
-                              if (votes.val >= votesNeeded) {
-                                 becomeLeader();
+      if (peers.size() > 0) {
+
+         for (Peer peer : peers.values()) {
+            peer.nextIndex = 1;
+            peer.matchIndex = 0;
+            rpc.sendRequestVote(clusterName, peer.peerId, currentTerm, myPeerId, log.getLastIndex(), log.getLastTerm(),
+                  new RaftRPC.RequestVoteResponseHandler() {
+                     @Override
+                     public void handleResponse(long term, boolean voteGranted) {
+                        synchronized (RaftEngine.this) {
+                           if (!stepDown(term)) {
+                              if (term == currentTerm && role == Role.Candidate) {
+                                 if (voteGranted) {
+                                    votes.val++;
+                                 }
+                                 if (votes.val >= votesNeeded) {
+                                    becomeLeader();
+                                 }
                               }
                            }
                         }
                      }
-                  }
-               });
+                  });
+         }
+      } else {
+         becomeLeader();
       }
       scheduleElection();
    }
@@ -279,9 +275,6 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
          if (role == Role.Candidate || role == Role.Leader) {
             logger.info("{} is stepping down (term {})", this, currentTerm);
             role = Role.Follower;
-            if (stateMachine.getIndex() > log.getCommitIndex()) {
-               initStateMachine();
-            }
          }
          scheduleElection();
          return true;
@@ -401,42 +394,8 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
 
    public synchronized void executeCommand(Command<T> command) {
       if (role == Role.Leader) {
-         // We optimistically update the leader's state machine in order to support
-         // other client requests validating against the optimistic state. However, 
-         // when we lose leadership, we need make sure to reset our state machine 
-         // to the commitIndex
-         updateStateMachine(log.getLastIndex());
          if (log.append(currentTerm, command)) {
-            // TODO: queue pending response for when this index is committed
-         }
-      }
-   }
-
-   private synchronized void updateStateMachine(long index) {
-      if (!stateMachine.isLoading()) {
-         while (index > stateMachine.getIndex()) {
-            final Entry<T> e = log.getEntry(stateMachine.getIndex() + 1);
-            e.command.applyTo(stateMachine);
-            stateMachine.apply(e.index, e.term);
-         }
-      }
-   }
-
-   /**
-    * Initializes the state machine to our commit index
-    */
-   private void initStateMachine() {
-      synchronized (this) {
-         stateMachine = stateMachineFactory.makeStateMachine();
-      }
-      File file = new File(log.getLogDirectory(), "raft.snapshot");
-      if (file.exists()) {
-         try {
-            stateMachine.readSnapshot(file);
-            updateStateMachine(log.getCommitIndex());
-         } catch (IOException e) {
-            logger.error(e.getMessage(), e);
-            role = Role.Failed;
+            // TODO: queue pending response until stateMachine applies command
          }
       }
    }

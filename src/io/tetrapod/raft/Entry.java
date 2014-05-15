@@ -20,7 +20,11 @@ public class Entry<T extends StateMachine<T>> {
    public Entry(DataInputStream in, T state) throws IOException {
       term = in.readLong();
       index = in.readLong();
-      command = (Command<T>) state.makeCommand(in.readInt());
+      final int typeId = in.readInt();
+      command = (Command<T>) state.makeCommand(typeId);
+      if (command == null) {
+         throw new IOException("Could not create command type " + typeId);
+      }
       command.read(in);
    }
 
