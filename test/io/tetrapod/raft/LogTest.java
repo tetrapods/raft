@@ -61,15 +61,15 @@ public class LogTest {
       Assert.assertFalse(log.append(new Entry<TestStateMachine>(1, 12, state.makeNewCommand())));
       Assert.assertNull(log.getEntry(12));
 
-      for (Entry<TestStateMachine> e : log.getEntries()) {
-         state.apply(e);
+      log.setCommitIndex(log.getLastIndex());
+      while (log.getStateMachine().getIndex() < log.getLastIndex()) {
+         sleep(100);
       }
       long checksum = state.getCheckSum();
       logger.info("State = {}", state);
-      log.setCommitIndex(state.getIndex());
       log.stop();
 
-      Thread.sleep(1000);
+      sleep(1000);
 
       // create a new log
 
@@ -77,8 +77,10 @@ public class LogTest {
       log = new Log<>(config, state);
       Assert.assertEquals(1, log.getFirstIndex());
       Assert.assertEquals(11, log.getLastIndex());
-      for (Entry<TestStateMachine> e : log.getEntries()) {
-         state.apply(e);
+
+      log.setCommitIndex(log.getLastIndex());
+      while (log.getStateMachine().getIndex() < log.getLastIndex()) {
+         sleep(100);
       }
       Assert.assertEquals(checksum, state.getCheckSum());
       logger.info("State = {}", state);
@@ -97,7 +99,7 @@ public class LogTest {
       //      Assert.assertEquals(21, log.getLastIndex());
       //      log.setCommitIndex(log.getLastIndex());
       //      log.stop();
-      //      Thread.sleep(1000);
+      //      sleep(1000);
       //
       //      state = new TestStateMachine();
       //      state.readSnapshot(snapFile);      
@@ -108,5 +110,11 @@ public class LogTest {
       //      Assert.assertEquals(12, log.getFirstIndex());
       //      Assert.assertEquals(21, log.getLastIndex());
 
+   }
+
+   private void sleep(int millis) {
+      try {
+         Thread.sleep(millis);
+      } catch (InterruptedException e) {}
    }
 }
