@@ -11,8 +11,8 @@ import org.slf4j.*;
  * 
  * 
  * <ul>
- * <li> TODO: Add a proper file lock so we can ensure only one raft process to a raft-dir</li>
- * <li> TODO: Make constants configurable 
+ * <li>TODO: Add a proper file lock so we can ensure only one raft process to a raft-dir</li>
+ * <li>TODO: Make constants configurable
  * </ul>
  * 
  */
@@ -21,7 +21,7 @@ public class Log<T extends StateMachine<T>> {
    public static final Logger   logger                   = LoggerFactory.getLogger(Log.class);
 
    public static final int      LOG_FILE_VERSION         = 1;
- 
+
    public static final int      NUM_ENTRIES_PER_LOGFILE  = 0x2000;
    public static final int      NUM_ENTRIES_PER_SNAPSHOT = 0x10000;
    public static final boolean  DELETE_OLD_FILES         = true;
@@ -83,9 +83,10 @@ public class Log<T extends StateMachine<T>> {
     * @return true if the entry was successfully appended to the log, or was already in our log to begin with
     */
    public synchronized boolean append(Entry<T> entry) {
+      assert entry != null;
       // check if the entry is already in our log
       if (entry.index <= lastIndex) {
-         assert entry.index > commitIndex;
+         assert entry.index >= commitIndex : entry.index + " >= " + commitIndex;
          if (getTerm(entry.index) != entry.term) {
             logger.warn("Log is conflicted at {} : {} ", entry, getTerm(entry.index));
             wipeConflictedEntries(entry.index);
@@ -127,7 +128,7 @@ public class Log<T extends StateMachine<T>> {
     */
    public synchronized Entry<T> getEntry(long index) {
       if (index > 0 && index <= lastIndex) {
-         if (index >= firstIndex) {
+         if (index >= firstIndex && entries.size() > 0) {
             assert index - firstIndex < Integer.MAX_VALUE;
             assert (index - firstIndex) < entries.size() : "index=" + index + ", first=" + firstIndex;
             return entries.get((int) (index - firstIndex));
@@ -148,8 +149,8 @@ public class Log<T extends StateMachine<T>> {
          list[i] = getEntry(fromIndex + i);
          if (list[i] == null) {
             logger.warn("Could not find log entry {}", fromIndex + i);
+            return null;
          }
-         assert list[i] != null;
       }
       return list;
    }
@@ -157,6 +158,12 @@ public class Log<T extends StateMachine<T>> {
    public long getTerm(long index) {
       if (index == 0) {
          return 0;
+      }
+      if (index == stateMachine.getPrevIndex()) {
+         return stateMachine.getPrevTerm();
+      }
+      if (index == stateMachine.getIndex()) {
+         return stateMachine.getTerm();
       }
       return getEntry(index).term;
    }
@@ -208,13 +215,20 @@ public class Log<T extends StateMachine<T>> {
    /**
     * See if our log is consistent with the purported leader
     * 
-    * @return false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
+    * @return false if log doesn't contain an entry at index whose term matches
     */
-   public boolean isConsistentWith(long index, long term) {
-      if (index == 0 && term == 0) {
+   public boolean isConsistentWith(final long index, final long term) {
+      if (index == 0 && term == 0 || index > lastIndex) {
          return true;
       }
       final Entry<T> entry = getEntry(index);
+
+      if (entry == null) {
+         if (index == stateMachine.getPrevIndex()) {
+            return term == stateMachine.getPrevTerm();
+         }
+      }
+
       return (entry != null && entry.term == term);
    }
 
@@ -298,12 +312,14 @@ public class Log<T extends StateMachine<T>> {
       }
    }
 
-   private synchronized void loadSnapshot() throws IOException {
+   protected synchronized void loadSnapshot() throws IOException {
       File file = new File(logDirectory, "raft.snapshot");
       if (file.exists()) {
          logger.info("Loading snapshot {} ", file);
          stateMachine.readSnapshot(file);
          logger.info("Loaded snapshot @ {}:{}", stateMachine.getTerm(), stateMachine.getIndex());
+         lastIndex = stateMachine.getIndex();
+         lastTerm = stateMachine.getTerm();
       }
    }
 
@@ -356,7 +372,6 @@ public class Log<T extends StateMachine<T>> {
          List<Entry<T>> list = loadLogFile(file);
          if (list != null && list.size() > 0) {
             int i = (int) (index - list.get(0).index);
-            assert i >= 0;
             if (i >= 0 && i < list.size()) {
                assert list.get(i).index == index;
                return list.get(i);
@@ -433,7 +448,7 @@ public class Log<T extends StateMachine<T>> {
       // currently pauses the world to save a snapshot
       File openFile = new File(logDirectory, "raft.open.snapshot");
       synchronized (stateMachine) {
-         stateMachine.writeSnapshot(openFile);
+         stateMachine.writeSnapshot(openFile, getTerm(stateMachine.getPrevIndex()));
          File file = new File(logDirectory, "raft.snapshot");
          if (file.exists()) {
             file.renameTo(new File(logDirectory, "raft.old.snapshot"));

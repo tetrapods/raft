@@ -2,6 +2,8 @@ package io.tetrapod.raft;
 
 import io.tetrapod.raft.RaftRPC.AppendEntriesResponse;
 import io.tetrapod.raft.RaftRPC.AppendEntriesResponseHandler;
+import io.tetrapod.raft.RaftRPC.InstallSnapshotResponse;
+import io.tetrapod.raft.RaftRPC.InstallSnapshotResponseHandler;
 import io.tetrapod.raft.RaftRPC.RequestVoteResponse;
 
 import java.io.*;
@@ -58,6 +60,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       private long      nextIndex = 1;
       private long      matchIndex;
       private boolean   appendPending;
+      private File      snapshotTransfer;
 
       public Peer(int peerId) {
          this.peerId = peerId;
@@ -82,7 +85,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
    public synchronized void start() {
       assert (myPeerId != 0);
       role = Role.Follower; // hack
-      scheduleElection();
+      rescheduleElection();
       launchPeriodicTasksThread();
    }
 
@@ -131,7 +134,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       return peers.containsKey(peerId);
    }
 
-   private synchronized void scheduleElection() {
+   private synchronized void rescheduleElection() {
       this.electionTimeout = System.currentTimeMillis() + ELECTION_TIMEOUT_FIXED_MILLIS + random.nextInt(ELECTION_TIMEOUT_RANDOM_MILLIS);
    }
 
@@ -182,11 +185,11 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
 
    private synchronized boolean isCommittable(long index) {
       int count = 1;
-      int needed = 1 + (peers.size() / 2);
+      int needed = (1 + peers.size()) / 2;
       for (Peer p : peers.values()) {
          if (p.matchIndex >= index) {
             count++;
-            if (count >= needed)
+            if (count > needed)
                return true;
          }
       }
@@ -211,7 +214,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
    }
 
    private synchronized void callElection() {
-      final int votesNeeded = 1 + (peers.size() / 2);
+      final int votesNeeded = (1 + peers.size()) / 2;
       final Value<Integer> votes = new Value<>(1);
       role = Role.Candidate;
       ++currentTerm;
@@ -232,7 +235,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
                                  if (voteGranted) {
                                     votes.val++;
                                  }
-                                 if (votes.val >= votesNeeded) {
+                                 if (votes.val > votesNeeded) {
                                     becomeLeader();
                                  }
                               }
@@ -244,7 +247,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       } else {
          becomeLeader();
       }
-      scheduleElection();
+      rescheduleElection();
    }
 
    @Override
@@ -260,7 +263,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       if (term >= currentTerm && (votedFor == 0 || votedFor == candidateId) && lastLogIndex >= log.getLastIndex()
             && lastLogTerm >= log.getLastTerm()) {
          votedFor = candidateId;
-         scheduleElection();
+         rescheduleElection();
 
          logger.info(String.format("%s I'm voting YES for %d (term %d)", this, candidateId, currentTerm));
          return new RequestVoteResponse(currentTerm, true);
@@ -277,7 +280,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
             logger.info("{} is stepping down (term {})", this, currentTerm);
             role = Role.Follower;
          }
-         scheduleElection();
+         rescheduleElection();
          return true;
       }
       return false;
@@ -292,6 +295,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
          peer.matchIndex = 0;
          peer.nextIndex = log.getLastIndex() + 1;
          peer.appendPending = false;
+         assert peer.nextIndex != 0;
       }
       updatePeers();
    }
@@ -313,42 +317,49 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       }
       if (!peer.appendPending
             && (peer.nextIndex < log.getLastIndex() || System.currentTimeMillis() > peer.lastAppendMillis + HEARTBEAT_MILLIS)) {
-         peer.lastAppendMillis = System.currentTimeMillis();
-         peer.appendPending = true;
-         assert (peer.nextIndex != 0);
+         if (peer.nextIndex == 0) {
+            assert (peer.nextIndex > 0);
+         }
          final Entry<T>[] entries = log.getEntries(peer.nextIndex, MAX_ENTRIES_PER_REQUEST);
-         assert (peer.nextIndex > 0);
-         long prevLogIndex = peer.nextIndex - 1;
-         long prevLogTerm = log.getTerm(prevLogIndex);
 
-         logger.trace("{} is sending append entries to {}", this, peer.peerId);
-         rpc.sendAppendEntries(peer.peerId, currentTerm, myPeerId, prevLogIndex, prevLogTerm, entries, log.getCommitIndex(),
-               new AppendEntriesResponseHandler() {
-                  @Override
-                  public void handleResponse(long term, boolean success, long lastLogIndex) {
-                     synchronized (RaftEngine.this) {
-                        peer.appendPending = false;
-                        if (role == Role.Leader) {
-                           if (!stepDown(term)) {
-                              if (success) {
-                                 if (entries != null) {
-                                    peer.matchIndex = entries[entries.length - 1].index;
-                                    peer.nextIndex = peer.matchIndex + 1;
-                                 }
-                                 updatePeer(peer);
-                              } else {
-                                 assert peer.nextIndex > 1;
-                                 if (peer.nextIndex > lastLogIndex) {
-                                    peer.nextIndex = lastLogIndex;
-                                 } else if (peer.nextIndex > 1) {
-                                    peer.nextIndex--;
+         if (peer.nextIndex < log.getFirstIndex() && entries == null) {
+            installSnapshot(peer);
+         } else {
+            long prevLogIndex = peer.nextIndex - 1;
+            long prevLogTerm = log.getTerm(prevLogIndex);
+
+            logger.trace("{} is sending append entries to {}", this, peer.peerId);
+            peer.lastAppendMillis = System.currentTimeMillis();
+            peer.appendPending = true;
+            rpc.sendAppendEntries(peer.peerId, currentTerm, myPeerId, prevLogIndex, prevLogTerm, entries, log.getCommitIndex(),
+                  new AppendEntriesResponseHandler() {
+                     @Override
+                     public void handleResponse(long term, boolean success, long lastLogIndex) {
+                        synchronized (RaftEngine.this) {
+                           peer.appendPending = false;
+                           if (role == Role.Leader) {
+                              if (!stepDown(term)) {
+                                 if (success) {
+                                    if (entries != null) {
+                                       peer.matchIndex = entries[entries.length - 1].index;
+                                       peer.nextIndex = peer.matchIndex + 1;
+                                       assert peer.nextIndex != 0;
+                                    }
+                                    updatePeer(peer);
+                                 } else {
+                                    assert peer.nextIndex > 1;
+                                    if (peer.nextIndex > lastLogIndex) {
+                                       peer.nextIndex = Math.max(lastLogIndex, 1);
+                                    } else if (peer.nextIndex > 1) {
+                                       peer.nextIndex--;
+                                    }
                                  }
                               }
                            }
                         }
                      }
-                  }
-               });
+                  });
+         }
       }
    }
 
@@ -361,12 +372,12 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
          return null;
       }
 
-      //   logger.debug(String.format("%s append entries from %d: from <%d:%d>", this, leaderId, prevLogTerm, prevLogIndex));
+      logger.trace(String.format("%s append entries from %d: from <%d:%d>", this, leaderId, prevLogTerm, prevLogIndex));
       if (term >= currentTerm) {
          if (term > currentTerm) {
             stepDown(term);
          }
-         scheduleElection();
+         rescheduleElection();
          if (this.leaderId != leaderId) {
             this.leaderId = leaderId;
             logger.info("{} my new leader is {}", this, leaderId);
@@ -386,6 +397,8 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
 
             logger.trace("{} is fine with append entries from {}", this, leaderId);
             return new AppendEntriesResponse(currentTerm, true, log.getLastIndex());
+         } else {
+            logger.warn("{} is failing with inconsistent append entries from {}", this, leaderId);
          }
       }
 
@@ -399,6 +412,93 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
             // TODO: queue pending response until stateMachine applies command
          }
       }
+   }
+
+   private static final int PART_SIZE = 1024 * 256;
+
+   private synchronized void installSnapshot(final Peer peer) {
+      if (peer.snapshotTransfer == null) {
+         peer.snapshotTransfer = new File(log.getLogDirectory(), "raft.snapshot");
+         installSnapshot(peer, 0);
+      }
+   }
+
+   private synchronized void installSnapshot(final Peer peer, final int part) {
+      // we don't have log entries this old on record, so we need to send them a viable snapshot instead
+      // we need to be able to send this snapshot before we delete log entries after the snapshot, or
+      // we won't be able to catch them up. We also need to make sure we don't delete the snapshot file
+      // we're sending. 
+      if (peer.snapshotTransfer != null) {
+         final long snapshotIndex = StateMachine.getSnapshotIndex(peer.snapshotTransfer);
+         if (snapshotIndex > 0) {
+            final long len = peer.snapshotTransfer.length();
+            final byte data[] = getFilePart(peer.snapshotTransfer, part * PART_SIZE, (int) Math.min(PART_SIZE, len - part * PART_SIZE));
+
+            logger.info("sendInstallSnapshot:part={} len={} ", part, data.length);
+            rpc.sendInstallSnapshot(peer.peerId, currentTerm, myPeerId, len, part, data, new InstallSnapshotResponseHandler() {
+               @Override
+               public void handleResponse(boolean success) {
+                  synchronized (RaftEngine.this) {
+                     if (success) {
+                        if ((part + 1) * PART_SIZE < len) {
+                           // send the next part
+                           installSnapshot(peer, part + 1);
+                        } else {
+                           logger.info("InstallSnapshot: done-{}", peer.nextIndex);
+                           peer.snapshotTransfer = null;
+                           peer.nextIndex = snapshotIndex;
+                        }
+                     } else {
+                        // TODO: Hmmmmm
+                        //peer.snapshotTransfer = null;
+                     }
+                  }
+               }
+            });
+         }
+      }
+   }
+
+   protected static byte[] getFilePart(File file, int offset, int len) {
+      byte[] data = new byte[len];
+      try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+         raf.seek(offset);
+         raf.read(data, 0, len);
+         return data;
+      } catch (IOException e) {
+         logger.error(e.getMessage(), e);
+      }
+      return null;
+   }
+
+   @Override
+   public InstallSnapshotResponse handleInstallSnapshot(long term, long index, long length, int part, byte[] data) {
+      logger.info("handleInstallSnapshot: length={} part={}", length, part);
+      rescheduleElection();
+
+      File file = new File(log.getLogDirectory(), "raft.installing.snapshot");
+      if (file.exists() && part == 0) {
+         file.delete();
+      }
+
+      if (part == 0 || file.exists()) {
+         if (file.length() == PART_SIZE * part) {
+            try (RandomAccessFile raf = new RandomAccessFile(file, "rw")) {
+               raf.seek(PART_SIZE * part);
+               raf.write(data);
+
+               if (raf.length() == length) {
+                  file.renameTo(new File(log.getLogDirectory(), "raft.snapshot"));
+                  log.loadSnapshot();
+               }
+
+               return new InstallSnapshotResponse(true);
+            } catch (IOException e) {
+               logger.error(e.getMessage(), e);
+            }
+         }
+      }
+      return new InstallSnapshotResponse(false);
    }
 
 }
