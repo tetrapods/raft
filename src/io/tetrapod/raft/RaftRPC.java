@@ -13,7 +13,7 @@ public interface RaftRPC {
       public AppendEntriesResponse handleAppendEntries(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<?>[] entries,
             long leaderCommit);
 
-      public InstallSnapshotResponse handleInstallSnapshot(long term, long index, long length, int part, byte[] data);
+      public InstallSnapshotResponse handleInstallSnapshot(long term, long index, long length, int partSize, int part, byte[] data);
    }
 
    ///////// Request Senders ///////// 
@@ -24,7 +24,8 @@ public interface RaftRPC {
    public void sendAppendEntries(int peerId, long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<?>[] entries,
          long leaderCommit, AppendEntriesResponseHandler handler);
 
-   public void sendInstallSnapshot(int peerId, long term, long index, long length, int part, byte[] data, InstallSnapshotResponseHandler handler);
+   public void sendInstallSnapshot(int peerId, long term, long index, long length, int partSize, int part, byte[] data,
+         InstallSnapshotResponseHandler handler);
 
    ///////// Response Handlers ///////// 
 

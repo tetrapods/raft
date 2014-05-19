@@ -31,9 +31,10 @@ public class LogTest {
    @Test
    public void testLog() throws Exception {
       TestStateMachine state = new TestStateMachine();
+      Config config = new Config().setLogDir(logDir);
 
       // create a log
-      Log<TestStateMachine> log = new Log<>(logDir, state);
+      Log<TestStateMachine> log = new Log<>(config, state);
 
       // write a bunch of entries
       for (int i = 0; i < 10; i++) {
@@ -73,7 +74,7 @@ public class LogTest {
       // create a new log
 
       state = new TestStateMachine();
-      log = new Log<>(logDir, state);
+      log = new Log<>(config, state);
       Assert.assertEquals(1, log.getFirstIndex());
       Assert.assertEquals(11, log.getLastIndex());
       for (Entry<TestStateMachine> e : log.getEntries()) {

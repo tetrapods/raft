@@ -52,7 +52,8 @@ public class RaftEngineTester implements RaftRPC {
    @Test
    public void testRaftEngine() throws IOException {
       for (int i = 1; i <= NUM_PEERS; i++) {
-         RaftEngine<TestStateMachine> raft = new RaftEngine<TestStateMachine>(logDirs[i - 1], "TEST", new TestStateMachine.Factory(), this);
+         Config cfg = new Config().setLogDir(logDirs[i - 1]).setClusterName("TEST");
+         RaftEngine<TestStateMachine> raft = new RaftEngine<TestStateMachine>(cfg, new TestStateMachine.Factory(), this);
          raft.setPeerId(i);
          for (int j = 1; j <= NUM_PEERS; j++) {
             if (j != i) {
@@ -178,7 +179,7 @@ public class RaftEngineTester implements RaftRPC {
       }
       logger.info("=====================================================================================================================");
       logger.info("");
-   //   checkConsistency();
+      //   checkConsistency();
    }
 
    private void sleep(int millis) {
@@ -241,14 +242,14 @@ public class RaftEngineTester implements RaftRPC {
    }
 
    @Override
-   public void sendInstallSnapshot(int peerId, final long term, final long index, final long length, final int part, final byte[] data,
-         final InstallSnapshotResponseHandler handler) {
+   public void sendInstallSnapshot(int peerId, final long term, final long index, final long length, final int partSize, final int part,
+         final byte[] data, final InstallSnapshotResponseHandler handler) {
       final RaftEngine<?> r = rafts.get(peerId);
       if (r != null) {
          executor.schedule(new Runnable() {
             public void run() {
                try {
-                  final InstallSnapshotResponse res = r.handleInstallSnapshot(term, index, length, part, data);
+                  final InstallSnapshotResponse res = r.handleInstallSnapshot(term, index, length, partSize, part, data);
                   executor.schedule(new Runnable() {
                      public void run() {
                         try {

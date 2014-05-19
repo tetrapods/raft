@@ -18,48 +18,41 @@ import org.slf4j.*;
  */
 public class Log<T extends StateMachine<T>> {
 
-   public static final Logger   logger                   = LoggerFactory.getLogger(Log.class);
+   public static final Logger   logger           = LoggerFactory.getLogger(Log.class);
 
-   public static final int      LOG_FILE_VERSION         = 1;
-
-   public static final int      NUM_ENTRIES_PER_LOGFILE  = 0x2000;
-   public static final int      NUM_ENTRIES_PER_SNAPSHOT = 0x10000;
-   public static final boolean  DELETE_OLD_FILES         = true;
+   public static final int      LOG_FILE_VERSION = 1;
 
    /**
     * The log's in-memory buffer of log entries
     */
-   private final List<Entry<T>> entries                  = new ArrayList<>();
+   private final List<Entry<T>> entries          = new ArrayList<>();
 
-   /**
-    * The directory where we will read and write raft data files
-    */
-   private final File           logDirectory;
+   private final Config         config;
 
    /**
     * Our current journal file's output stream
     */
    private DataOutputStream     out;
-   private boolean              running                  = true;
+   private boolean              running          = true;
 
    // We keep some key index & term variables that may or 
    // may not be in our buffer and are accessed frequently:
 
-   private long                 firstIndex               = 0;
-   private long                 firstTerm                = 0;
-   private long                 lastIndex                = 0;
-   private long                 lastTerm                 = 0;
-   private long                 commitIndex              = 0;
+   private long                 firstIndex       = 0;
+   private long                 firstTerm        = 0;
+   private long                 lastIndex        = 0;
+   private long                 lastTerm         = 0;
+   private long                 commitIndex      = 0;
 
    /**
     * The state machine we are coordinating via raft
     */
    private final T              stateMachine;
 
-   public Log(File logDir, T stateMachine) throws IOException {
+   public Log(Config config, T stateMachine) throws IOException {
       this.stateMachine = stateMachine;
-      this.logDirectory = logDir;
-      this.logDirectory.mkdirs();
+      this.config = config;
+      this.config.getLogDir().mkdirs();
 
       loadSnapshot();
       replayLogs();
@@ -185,7 +178,7 @@ public class Log<T extends StateMachine<T>> {
    }
 
    public File getLogDirectory() {
-      return logDirectory;
+      return config.getLogDir();
    }
 
    public synchronized long getFirstIndex() {
@@ -242,8 +235,12 @@ public class Log<T extends StateMachine<T>> {
       }
       try {
          updateStateMachine();
-         out.close();
-         out = null;
+         synchronized (this) {
+            if (out != null) {
+               out.close();
+               out = null;
+            }
+         }
       } catch (Throwable t) {
          logger.error(t.getMessage(), t);
       }
@@ -267,12 +264,12 @@ public class Log<T extends StateMachine<T>> {
     * Get the canonical file name for this index
     */
    private File getFile(long index) {
-      long firstIndexInFile = (index / NUM_ENTRIES_PER_LOGFILE) * NUM_ENTRIES_PER_LOGFILE;
-      return new File(logDirectory, String.format("%016X.log", firstIndexInFile));
+      long firstIndexInFile = (index / config.getEntriesPerFile()) * config.getEntriesPerFile();
+      return new File(getLogDirectory(), String.format("%016X.log", firstIndexInFile));
    }
 
    private synchronized void ensureCorrectLogFile(long index) throws IOException {
-      if (index % NUM_ENTRIES_PER_LOGFILE == 0) {
+      if (index % config.getEntriesPerFile() == 0) {
          if (out != null) {
             out.close();
             out = null;
@@ -301,7 +298,7 @@ public class Log<T extends StateMachine<T>> {
                stateMachine.apply(e);
                ensureCorrectLogFile(e.index);
                e.write(out);
-               if ((e.index % NUM_ENTRIES_PER_SNAPSHOT) == 0) {
+               if ((e.index % config.getEntriesPerSnapshot()) == 0) {
                   saveSnapshot();
                }
             }
@@ -313,7 +310,7 @@ public class Log<T extends StateMachine<T>> {
    }
 
    protected synchronized void loadSnapshot() throws IOException {
-      File file = new File(logDirectory, "raft.snapshot");
+      File file = new File(getLogDirectory(), "raft.snapshot");
       if (file.exists()) {
          logger.info("Loading snapshot {} ", file);
          stateMachine.readSnapshot(file);
@@ -409,11 +406,11 @@ public class Log<T extends StateMachine<T>> {
     * Discards entries from our buffer that we no longer need to store in memory
     */
    private synchronized void compact() {
-      if (entries.size() > NUM_ENTRIES_PER_LOGFILE * 2) {
+      if (entries.size() > config.getEntriesPerFile() * 2) {
          logger.info("Compacting log size = {}", entries.size());
          List<Entry<T>> entriesToKeep = new ArrayList<>();
          for (Entry<T> e : entries) {
-            if (e.index > commitIndex || e.index > stateMachine.getIndex() || e.index > lastIndex - NUM_ENTRIES_PER_LOGFILE) {
+            if (e.index > commitIndex || e.index > stateMachine.getIndex() || e.index > lastIndex - config.getEntriesPerFile()) {
                entriesToKeep.add(e);
             }
          }
@@ -425,8 +422,8 @@ public class Log<T extends StateMachine<T>> {
          logger.info("Compacted log new size = {}", entries.size());
       }
 
-      if (DELETE_OLD_FILES) {
-         long index = commitIndex - (NUM_ENTRIES_PER_SNAPSHOT * 2);
+      if (config.getDeleteOldFiles()) {
+         long index = commitIndex - (config.getEntriesPerSnapshot() * 2);
          while (index > 0) {
             File file = getFile(index);
             if (file.exists()) {
@@ -435,7 +432,7 @@ public class Log<T extends StateMachine<T>> {
             } else {
                break;
             }
-            index -= NUM_ENTRIES_PER_LOGFILE;
+            index -= config.getEntriesPerFile();
          }
       }
 
@@ -446,12 +443,12 @@ public class Log<T extends StateMachine<T>> {
     */
    private long saveSnapshot() throws IOException {
       // currently pauses the world to save a snapshot
-      File openFile = new File(logDirectory, "raft.open.snapshot");
+      File openFile = new File(getLogDirectory(), "raft.open.snapshot");
       synchronized (stateMachine) {
          stateMachine.writeSnapshot(openFile, getTerm(stateMachine.getPrevIndex()));
-         File file = new File(logDirectory, "raft.snapshot");
+         File file = new File(getLogDirectory(), "raft.snapshot");
          if (file.exists()) {
-            file.renameTo(new File(logDirectory, "raft.old.snapshot"));
+            file.renameTo(new File(getLogDirectory(), "raft.old.snapshot"));
          }
          openFile.renameTo(file);
          return stateMachine.getIndex();

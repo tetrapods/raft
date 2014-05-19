@@ -15,21 +15,16 @@ import org.slf4j.*;
 /**
  * Major TODOS:
  * <ul>
- * <li>Snapshot Transfers</li>
+ * <li>NewTermCommand</li>
  * <li>Client RPC handling</li>
+ * <li>Reference StorageStateMachine w/ CopyOnWrite
  * <li>Cluster membership changes</li>
- * <li>Cluster Configuration</li>
  * </ul>
  */
 
 public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
 
-   public static final Logger logger                         = LoggerFactory.getLogger(RaftEngine.class);
-
-   public static final int    ELECTION_TIMEOUT_FIXED_MILLIS  = 1000;
-   public static final int    ELECTION_TIMEOUT_RANDOM_MILLIS = 2000;
-   public static final int    HEARTBEAT_MILLIS               = 250;
-   public static final int    MAX_ENTRIES_PER_REQUEST        = 250;
+   public static final Logger logger = LoggerFactory.getLogger(RaftEngine.class);
 
    /**
     * These are the major raft roles we can be in
@@ -40,12 +35,11 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
 
    public volatile boolean          DEBUG  = false;
 
-   public final SecureRandom        random = new SecureRandom();
+   private final SecureRandom       random = new SecureRandom();
    private final Map<Integer, Peer> peers  = new HashMap<Integer, Peer>();
    private final Log<T>             log;
    private final RaftRPC            rpc;
-   private final String             clusterName;
-
+   private final Config             config;
    private Role                     role   = Role.Joining;
    private int                      myPeerId;
    private long                     currentTerm;
@@ -65,6 +59,11 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       public Peer(int peerId) {
          this.peerId = peerId;
       }
+
+      @Override
+      public String toString() {
+         return String.format("Peer-%d", peerId);
+      }
    }
 
    public class Value<X> {
@@ -75,10 +74,10 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       }
    }
 
-   public RaftEngine(File logDir, String clusterName, StateMachine.Factory<T> stateMachineFactory, RaftRPC rpc) throws IOException {
+   public RaftEngine(Config config, StateMachine.Factory<T> stateMachineFactory, RaftRPC rpc) throws IOException {
       this.rpc = rpc;
-      this.clusterName = clusterName;
-      this.log = new Log<T>(logDir, stateMachineFactory.makeStateMachine());
+      this.config = config;
+      this.log = new Log<T>(config, stateMachineFactory.makeStateMachine());
       this.currentTerm = log.getLastTerm();
    }
 
@@ -96,10 +95,6 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
    @Override
    public synchronized String toString() {
       return String.format("Raft[%d] %s", myPeerId, role);
-   }
-
-   public String getClusterName() {
-      return clusterName;
    }
 
    public synchronized T getStateMachine() {
@@ -135,7 +130,8 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
    }
 
    private synchronized void rescheduleElection() {
-      this.electionTimeout = System.currentTimeMillis() + ELECTION_TIMEOUT_FIXED_MILLIS + random.nextInt(ELECTION_TIMEOUT_RANDOM_MILLIS);
+      this.electionTimeout = System.currentTimeMillis() + config.getElectionTimeoutFixedMillis()
+            + random.nextInt(config.getElectionTimeoutRandomMillis());
    }
 
    private void launchPeriodicTasksThread() {
@@ -225,7 +221,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
          for (Peer peer : peers.values()) {
             peer.nextIndex = 1;
             peer.matchIndex = 0;
-            rpc.sendRequestVote(clusterName, peer.peerId, currentTerm, myPeerId, log.getLastIndex(), log.getLastTerm(),
+            rpc.sendRequestVote(config.getClusterName(), peer.peerId, currentTerm, myPeerId, log.getLastIndex(), log.getLastTerm(),
                   new RaftRPC.RequestVoteResponseHandler() {
                      @Override
                      public void handleResponse(long term, boolean voteGranted) {
@@ -253,7 +249,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
    @Override
    public synchronized RequestVoteResponse handleRequestVote(String clusterName, long term, int candidateId, long lastLogIndex,
          long lastLogTerm) {
-      if (!this.clusterName.equals(clusterName) || !isValidPeer(candidateId)) {
+      if (!config.getClusterName().equals(clusterName) || !isValidPeer(candidateId)) {
          return null;
       }
 
@@ -316,11 +312,11 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
          peer.appendPending = false; // time out the last append
       }
       if (!peer.appendPending
-            && (peer.nextIndex < log.getLastIndex() || System.currentTimeMillis() > peer.lastAppendMillis + HEARTBEAT_MILLIS)) {
+            && (peer.nextIndex < log.getLastIndex() || System.currentTimeMillis() > peer.lastAppendMillis + config.getHeartbeatMillis())) {
          if (peer.nextIndex == 0) {
             assert (peer.nextIndex > 0);
          }
-         final Entry<T>[] entries = log.getEntries(peer.nextIndex, MAX_ENTRIES_PER_REQUEST);
+         final Entry<T>[] entries = log.getEntries(peer.nextIndex, config.getMaxEntriesPerRequest());
 
          if (peer.nextIndex < log.getFirstIndex() && entries == null) {
             installSnapshot(peer);
@@ -414,8 +410,6 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       }
    }
 
-   private static final int PART_SIZE = 1024 * 256;
-
    private synchronized void installSnapshot(final Peer peer) {
       if (peer.snapshotTransfer == null) {
          peer.snapshotTransfer = new File(log.getLogDirectory(), "raft.snapshot");
@@ -431,16 +425,16 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       if (peer.snapshotTransfer != null) {
          final long snapshotIndex = StateMachine.getSnapshotIndex(peer.snapshotTransfer);
          if (snapshotIndex > 0) {
+            final int partSize = config.getSnapshotPartSize();
             final long len = peer.snapshotTransfer.length();
-            final byte data[] = getFilePart(peer.snapshotTransfer, part * PART_SIZE, (int) Math.min(PART_SIZE, len - part * PART_SIZE));
+            final byte data[] = getFilePart(peer.snapshotTransfer, part * partSize, (int) Math.min(partSize, len - part * partSize));
 
-            logger.info("sendInstallSnapshot:part={} len={} ", part, data.length);
-            rpc.sendInstallSnapshot(peer.peerId, currentTerm, myPeerId, len, part, data, new InstallSnapshotResponseHandler() {
+            rpc.sendInstallSnapshot(peer.peerId, currentTerm, myPeerId, len, partSize, part, data, new InstallSnapshotResponseHandler() {
                @Override
                public void handleResponse(boolean success) {
                   synchronized (RaftEngine.this) {
                      if (success) {
-                        if ((part + 1) * PART_SIZE < len) {
+                        if ((part + 1) * partSize < len) {
                            // send the next part
                            installSnapshot(peer, part + 1);
                         } else {
@@ -449,6 +443,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
                            peer.nextIndex = snapshotIndex;
                         }
                      } else {
+                        logger.error("{} Failed to install snapshot on {}", this, peer);
                         // TODO: Hmmmmm
                         //peer.snapshotTransfer = null;
                      }
@@ -472,7 +467,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
    }
 
    @Override
-   public InstallSnapshotResponse handleInstallSnapshot(long term, long index, long length, int part, byte[] data) {
+   public InstallSnapshotResponse handleInstallSnapshot(long term, long index, long length, int partSize, int part, byte[] data) {
       logger.info("handleInstallSnapshot: length={} part={}", length, part);
       rescheduleElection();
 
@@ -482,9 +477,9 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       }
 
       if (part == 0 || file.exists()) {
-         if (file.length() == PART_SIZE * part) {
+         if (file.length() == partSize * part) {
             try (RandomAccessFile raf = new RandomAccessFile(file, "rw")) {
-               raf.seek(PART_SIZE * part);
+               raf.seek(partSize * part);
                raf.write(data);
 
                if (raf.length() == length) {
