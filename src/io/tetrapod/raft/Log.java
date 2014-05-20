@@ -112,8 +112,13 @@ public class Log<T extends StateMachine<T>> {
    /**
     * Append a new command to the log. Should only be called by a Leader
     */
-   public synchronized boolean append(long term, Command<T> command) {
-      return append(new Entry<T>(term, lastIndex + 1, command));
+   public synchronized Entry<T> append(long term, Command<T> command) {
+      final Entry<T> e = new Entry<T>(term, lastIndex + 1, command);
+      if (append(e)) {
+         return e;
+      } else {
+         return null;
+      }
    }
 
    /**
@@ -203,6 +208,10 @@ public class Log<T extends StateMachine<T>> {
 
    public synchronized void setCommitIndex(long index) {
       commitIndex = index;
+   }
+
+   public synchronized long getStateMachineIndex() {
+      return stateMachine.getIndex();
    }
 
    /**

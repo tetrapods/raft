@@ -13,7 +13,7 @@ import org.slf4j.*;
 /**
  * Runs a full system simulation with fake RPC
  */
-public class RaftEngineTester implements RaftRPC {
+public class RaftEngineTester implements RaftRPC<TestStateMachine> {
 
    public static final Logger              logger    = LoggerFactory.getLogger(RaftEngineTester.class);
    private static final int                NUM_PEERS = 3;
@@ -78,7 +78,7 @@ public class RaftEngineTester implements RaftRPC {
                try {
                   synchronized (rafts) {
                      for (RaftEngine<TestStateMachine> raft : rafts.values()) {
-                        raft.executeCommand(new TestStateMachine.TestCommand(random.nextLong()));
+                        raft.executeCommand(new TestStateMachine.TestCommand(random.nextLong()), null);
                      }
                   }
                   sleep(5);
@@ -217,8 +217,8 @@ public class RaftEngineTester implements RaftRPC {
 
    @Override
    public void sendAppendEntries(int peerId, final long term, final int leaderId, final long prevLogIndex, final long prevLogTerm,
-         final Entry<?>[] entries, final long leaderCommit, final AppendEntriesResponseHandler handler) {
-      final RaftEngine<?> r = rafts.get(peerId);
+         final Entry<TestStateMachine>[] entries, final long leaderCommit, final AppendEntriesResponseHandler handler) {
+      final RaftEngine<TestStateMachine> r = rafts.get(peerId);
       if (r != null) {
          executor.schedule(new Runnable() {
             public void run() {

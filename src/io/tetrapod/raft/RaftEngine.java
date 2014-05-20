@@ -2,6 +2,7 @@ package io.tetrapod.raft;
 
 import io.tetrapod.raft.RaftRPC.AppendEntriesResponse;
 import io.tetrapod.raft.RaftRPC.AppendEntriesResponseHandler;
+import io.tetrapod.raft.RaftRPC.ClientResponseHandler;
 import io.tetrapod.raft.RaftRPC.InstallSnapshotResponse;
 import io.tetrapod.raft.RaftRPC.InstallSnapshotResponseHandler;
 import io.tetrapod.raft.RaftRPC.RequestVoteResponse;
@@ -15,14 +16,12 @@ import org.slf4j.*;
 /**
  * Major TODOS:
  * <ul>
- * <li>NewTermCommand</li>
- * <li>Client RPC handling</li>
  * <li>Reference StorageStateMachine w/ CopyOnWrite
  * <li>Cluster membership changes</li>
  * </ul>
  */
 
-public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
+public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T> {
 
    public static final Logger logger = LoggerFactory.getLogger(RaftEngine.class);
 
@@ -33,20 +32,21 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       Joining, Observer, Follower, Candidate, Leader, Failed, Leaving
    }
 
-   public volatile boolean          DEBUG  = false;
+   public volatile boolean                  DEBUG           = false;
 
-   private final SecureRandom       random = new SecureRandom();
-   private final Map<Integer, Peer> peers  = new HashMap<Integer, Peer>();
-   private final Log<T>             log;
-   private final RaftRPC            rpc;
-   private final Config             config;
-   private Role                     role   = Role.Joining;
-   private int                      myPeerId;
-   private long                     currentTerm;
-   private int                      votedFor;
-   private int                      leaderId;
-   private long                     electionTimeout;
-   private long                     firstIndexOfTerm;
+   private final SecureRandom               random          = new SecureRandom();
+   private final Map<Integer, Peer>         peers           = new HashMap<Integer, Peer>();
+   private final LinkedList<PendingCommand> pendingCommands = new LinkedList<>();
+   private final Log<T>                     log;
+   private final RaftRPC<T>                 rpc;
+   private final Config                     config;
+   private Role                             role            = Role.Joining;
+   private int                              myPeerId;
+   private long                             currentTerm;
+   private int                              votedFor;
+   private int                              leaderId;
+   private long                             electionTimeout;
+   private long                             firstIndexOfTerm;
 
    public static class Peer {
       private final int peerId;
@@ -74,7 +74,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       }
    }
 
-   public RaftEngine(Config config, StateMachine.Factory<T> stateMachineFactory, RaftRPC rpc) throws IOException {
+   public RaftEngine(Config config, StateMachine.Factory<T> stateMachineFactory, RaftRPC<T> rpc) throws IOException {
       this.rpc = rpc;
       this.config = config;
       this.log = new Log<T>(config, stateMachineFactory.makeStateMachine());
@@ -90,6 +90,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
 
    public synchronized void stop() {
       role = Role.Leaving;
+      clearAllPendingRequests();
    }
 
    @Override
@@ -172,6 +173,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
          case Leader:
             updateCommitIndex();
             updatePeers();
+            updatePendingRequests();
             break;
          case Failed:
          case Leaving:
@@ -275,6 +277,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
          if (role == Role.Candidate || role == Role.Leader) {
             logger.info("{} is stepping down (term {})", this, currentTerm);
             role = Role.Follower;
+            clearAllPendingRequests();
          }
          rescheduleElection();
          return true;
@@ -297,7 +300,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       // Force a new term command to mark the occasion and hasten
       // commitment of any older entries in our log from the 
       // previous term
-      executeCommand(new NewTermCommand<T>(myPeerId, currentTerm));
+      executeCommand(new NewTermCommand<T>(myPeerId, currentTerm), null);
 
       updatePeers();
    }
@@ -336,7 +339,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
             rpc.sendAppendEntries(peer.peerId, currentTerm, myPeerId, prevLogIndex, prevLogTerm, entries, log.getCommitIndex(),
                   new AppendEntriesResponseHandler() {
                      @Override
-                     public void handleResponse(long term, boolean success, long lastLogIndex) {
+                     public void handleResponse(final long term, final boolean success, final long lastLogIndex) {
                         synchronized (RaftEngine.this) {
                            peer.appendPending = false;
                            if (role == Role.Leader) {
@@ -365,10 +368,9 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       }
    }
 
-   @SuppressWarnings("unchecked")
    @Override
    public synchronized AppendEntriesResponse handleAppendEntries(long term, int leaderId, long prevLogIndex, long prevLogTerm,
-         Entry<?>[] entries, long leaderCommit) {
+         Entry<T>[] entries, long leaderCommit) {
 
       if (!isValidPeer(leaderId)) {
          return null;
@@ -387,8 +389,8 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
 
          if (log.isConsistentWith(prevLogIndex, prevLogTerm)) {
             if (entries != null) {
-               for (Entry<?> e : entries) {
-                  if (!log.append((Entry<T>) e)) {
+               for (Entry<T> e : entries) {
+                  if (!log.append(e)) {
                      logger.warn(String.format("%s is failing append entries from %d: %s", this, leaderId, e));
                      return new AppendEntriesResponse(currentTerm, false, log.getLastIndex());
                   }
@@ -406,14 +408,6 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
 
       logger.trace("{} is rejecting append entries from {}", this, leaderId);
       return new AppendEntriesResponse(currentTerm, false, log.getLastIndex());
-   }
-
-   public synchronized void executeCommand(Command<T> command) {
-      if (role == Role.Leader) {
-         if (log.append(currentTerm, command)) {
-            // TODO: queue pending response until stateMachine applies command
-         }
-      }
    }
 
    private synchronized void installSnapshot(final Peer peer) {
@@ -500,6 +494,71 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
          }
       }
       return new InstallSnapshotResponse(false);
+   }
+
+   @Override
+   public synchronized void handleClientRequest(Command<T> command, ClientResponseHandler<T> handler) {
+      executeCommand(command, handler);
+   }
+
+   public synchronized void executeCommand(Command<T> command, ClientResponseHandler<T> handler) {
+      if (role == Role.Leader) {
+         Entry<T> e = log.append(currentTerm, command);
+         if (e != null) {
+            if (handler != null) {
+               synchronized (pendingCommands) {
+                  pendingCommands.add(new PendingCommand(e, handler));
+               }
+               return;
+            }
+         }
+      }
+      if (handler != null) {
+         handler.handleResponse(false, command);
+      }
+   }
+
+   private class PendingCommand implements Comparable<PendingCommand> {
+      public final Entry<T>                 entry;
+      public final ClientResponseHandler<T> handler;
+
+      public PendingCommand(Entry<T> entry, ClientResponseHandler<T> handler) {
+         this.entry = entry;
+         this.handler = handler;
+      }
+
+      @Override
+      public int compareTo(PendingCommand o) {
+         final Long index = entry.index;
+         return index.compareTo(o.entry.index);
+      }
+   }
+
+   /**
+    * Pop all the pending command requests from our list that are now safely replicated to the majority and applied to our state machine
+    */
+   private void updatePendingRequests() {
+      synchronized (pendingCommands) {
+         while (!pendingCommands.isEmpty()) {
+            PendingCommand item = pendingCommands.poll();
+            if (item.entry.index <= log.getStateMachineIndex()) {
+               logger.info("Returning Pending Command Response To Client {}", item.entry);
+               item.handler.handleResponse(true, item.entry.command);
+            } else {
+               pendingCommands.addFirst(item);
+               return;
+            }
+         }
+      }
+   }
+
+   private synchronized void clearAllPendingRequests() {
+      synchronized (pendingCommands) {
+         for (PendingCommand item : pendingCommands) {
+            item.handler.handleResponse(false, item.entry.command);
+         }
+         pendingCommands.clear();
+      }
    }
 
 }

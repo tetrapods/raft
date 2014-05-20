@@ -3,17 +3,19 @@ package io.tetrapod.raft;
 /**
  * Delegates all the asynchronous RPC implementation for raft to a third party.
  */
-public interface RaftRPC {
+public interface RaftRPC<T extends StateMachine<T>> {
 
    ///////// Request Handlers ///////// 
 
-   public interface Requests {
+   public interface Requests<T extends StateMachine<T>> {
       public RequestVoteResponse handleRequestVote(String clusterName, long term, int candidateId, long lastLogIndex, long lastLogTerm);
 
-      public AppendEntriesResponse handleAppendEntries(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<?>[] entries,
+      public AppendEntriesResponse handleAppendEntries(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<T>[] entries,
             long leaderCommit);
 
       public InstallSnapshotResponse handleInstallSnapshot(long term, long index, long length, int partSize, int part, byte[] data);
+
+      public void handleClientRequest(Command<T> command, ClientResponseHandler<T> handler);
    }
 
    ///////// Request Senders ///////// 
@@ -21,7 +23,7 @@ public interface RaftRPC {
    public void sendRequestVote(String clusterName, int peerId, long term, int candidateId, long lastLogIndex, long lastLogTerm,
          RequestVoteResponseHandler handler);
 
-   public void sendAppendEntries(int peerId, long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<?>[] entries,
+   public void sendAppendEntries(int peerId, long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<T>[] entries,
          long leaderCommit, AppendEntriesResponseHandler handler);
 
    public void sendInstallSnapshot(int peerId, long term, long index, long length, int partSize, int part, byte[] data,
@@ -39,6 +41,10 @@ public interface RaftRPC {
 
    public interface InstallSnapshotResponseHandler {
       public void handleResponse(boolean success);
+   }
+
+   public interface ClientResponseHandler<T extends StateMachine<T>> {
+      public void handleResponse(boolean success, Command<T> command);
    }
 
    ///////// Response Objects ///////// 
