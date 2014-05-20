@@ -23,7 +23,9 @@ public interface Command<T extends StateMachine<T>> {
    public void read(DataInputStream in) throws IOException;
 
    /**
-    * Get a unique and stable integer id for this command type
+    * Get a unique and stable integer id for this command type.
+    * 
+    * Negative numbers are reserved for internal commands.
     */
    public int getCommandType();
 

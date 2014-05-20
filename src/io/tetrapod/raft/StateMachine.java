@@ -16,6 +16,8 @@ public abstract class StateMachine<T extends StateMachine<T>> {
 
    public static final int    SNAPSHOT_FILE_VERSION = 1;
 
+   public static final int    COMMAND_ID_NEW_TERM   = -1;
+
    public enum SnapshotMode {
       /**
        * Blocking mode is memory efficient, but blocks all changes while writing the snapshot. Only suitable for small state machines that
@@ -45,6 +47,16 @@ public abstract class StateMachine<T extends StateMachine<T>> {
 
    public SnapshotMode getSnapshotMode() {
       return SnapshotMode.Blocking;
+   }
+
+   protected Command<T> makeCommandById(int id) {
+      if (id < 0) {
+         switch (id) {
+            case COMMAND_ID_NEW_TERM:
+               return new NewTermCommand<T>();
+         }
+      }
+      return makeCommand(id);
    }
 
    public abstract Command<T> makeCommand(int id);

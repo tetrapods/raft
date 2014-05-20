@@ -48,7 +48,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
    private long                     electionTimeout;
    private long                     firstIndexOfTerm;
 
-   public class Peer {
+   public static class Peer {
       private final int peerId;
       private long      lastAppendMillis;
       private long      nextIndex = 1;
@@ -66,7 +66,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
       }
    }
 
-   public class Value<X> {
+   public static class Value<X> {
       public X val;
 
       public Value(X val) {
@@ -293,6 +293,12 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests {
          peer.appendPending = false;
          assert peer.nextIndex != 0;
       }
+
+      // Force a new term command to mark the occasion and hasten
+      // commitment of any older entries in our log from the 
+      // previous term
+      executeCommand(new NewTermCommand<T>(myPeerId, currentTerm));
+
       updatePeers();
    }
 
