@@ -25,9 +25,12 @@ public class StorageItem {
       this.data = data;
    }
 
+   public byte[] getData() {
+      return this.data;
+   }
+
    public int getVersion() {
       return version;
    }
- 
 
 }

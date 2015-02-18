@@ -22,6 +22,7 @@ public class PutItemCommand implements Command<StorageStateMachine> {
       StorageItem item = state.getItem(key);
       if (item == null) {
          item = new StorageItem(key);
+         state.putItem(key, item);
       }
       item.setData(data);
    }

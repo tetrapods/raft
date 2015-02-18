@@ -44,4 +44,15 @@ public class StorageStateMachine extends StateMachine<StorageStateMachine> {
       return items.get(key);
    }
 
+   @Override
+   public String toString() {
+      StorageItem item = items.get("foo");
+      return item == null ? "<null>" : new String(item.getData());
+   }
+
+   public void putItem(String key, StorageItem item) {
+      // TODO: copy-on-write support
+      items.put(key, item);
+   }
+
 }
