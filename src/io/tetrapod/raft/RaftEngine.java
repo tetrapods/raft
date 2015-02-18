@@ -1,11 +1,9 @@
 package io.tetrapod.raft;
 
-import io.tetrapod.raft.RaftRPC.AppendEntriesResponse;
 import io.tetrapod.raft.RaftRPC.AppendEntriesResponseHandler;
 import io.tetrapod.raft.RaftRPC.ClientResponseHandler;
-import io.tetrapod.raft.RaftRPC.InstallSnapshotResponse;
 import io.tetrapod.raft.RaftRPC.InstallSnapshotResponseHandler;
-import io.tetrapod.raft.RaftRPC.RequestVoteResponse;
+import io.tetrapod.raft.RaftRPC.VoteResponseHandler;
 
 import java.io.*;
 import java.security.SecureRandom;
@@ -18,6 +16,7 @@ import org.slf4j.*;
  * <ul>
  * <li>Reference StorageStateMachine w/ CopyOnWrite
  * <li>Cluster membership changes</li>
+ * <li>More Unit Tests & Robust Simulator
  * </ul>
  */
 
@@ -126,7 +125,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       peers.put(peerId, new Peer(peerId));
    }
 
-   private boolean isValidPeer(int peerId) {
+   public boolean isValidPeer(int peerId) {
       return peers.containsKey(peerId);
    }
 
@@ -224,7 +223,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             peer.nextIndex = 1;
             peer.matchIndex = 0;
             rpc.sendRequestVote(config.getClusterName(), peer.peerId, currentTerm, myPeerId, log.getLastIndex(), log.getLastTerm(),
-                  new RaftRPC.RequestVoteResponseHandler() {
+                  new RaftRPC.VoteResponseHandler() {
                      @Override
                      public void handleResponse(long term, boolean voteGranted) {
                         synchronized (RaftEngine.this) {
@@ -249,12 +248,11 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    }
 
    @Override
-   public synchronized RequestVoteResponse handleRequestVote(String clusterName, long term, int candidateId, long lastLogIndex,
-         long lastLogTerm) {
+   public synchronized void handleVoteRequest(String clusterName, long term, int candidateId, long lastLogIndex, long lastLogTerm,
+         VoteResponseHandler handler) {
       if (!config.getClusterName().equals(clusterName) || !isValidPeer(candidateId)) {
-         return null;
+         return;
       }
-
       if (term > currentTerm) {
          stepDown(term);
       }
@@ -264,10 +262,11 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          rescheduleElection();
 
          logger.info(String.format("%s I'm voting YES for %d (term %d)", this, candidateId, currentTerm));
-         return new RequestVoteResponse(currentTerm, true);
+         handler.handleResponse(currentTerm, true);
+      } else {
+         logger.info(String.format("%s I'm voting NO for %d (term %d)", this, candidateId, currentTerm));
+         handler.handleResponse(currentTerm, false);
       }
-      logger.info(String.format("%s I'm voting NO for %d (term %d)", this, candidateId, currentTerm));
-      return new RequestVoteResponse(currentTerm, false);
    }
 
    private synchronized boolean stepDown(long term) {
@@ -369,11 +368,11 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    }
 
    @Override
-   public synchronized AppendEntriesResponse handleAppendEntries(long term, int leaderId, long prevLogIndex, long prevLogTerm,
-         Entry<T>[] entries, long leaderCommit) {
+   public synchronized void handleAppendEntriesRequest(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<T>[] entries,
+         long leaderCommit, AppendEntriesResponseHandler handler) {
 
       if (!isValidPeer(leaderId)) {
-         return null;
+         return;
       }
 
       logger.trace(String.format("%s append entries from %d: from <%d:%d>", this, leaderId, prevLogTerm, prevLogIndex));
@@ -381,18 +380,21 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          if (term > currentTerm) {
             stepDown(term);
          }
-         rescheduleElection();
          if (this.leaderId != leaderId) {
-            this.leaderId = leaderId;
-            logger.info("{} my new leader is {}", this, leaderId);
+            stepDown(term);
+            //            this.leaderId = leaderId;
+            //            this.role = Role.Follower;
+            //            logger.info("{} my new leader is {}", this, leaderId);
          }
+         rescheduleElection();
 
          if (log.isConsistentWith(prevLogIndex, prevLogTerm)) {
             if (entries != null) {
                for (Entry<T> e : entries) {
                   if (!log.append(e)) {
                      logger.warn(String.format("%s is failing append entries from %d: %s", this, leaderId, e));
-                     return new AppendEntriesResponse(currentTerm, false, log.getLastIndex());
+                     handler.handleResponse(currentTerm, false, log.getLastIndex());
+                     return;
                   }
                }
             }
@@ -400,14 +402,15 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             log.setCommitIndex(Math.min(leaderCommit, log.getLastIndex()));
 
             logger.trace("{} is fine with append entries from {}", this, leaderId);
-            return new AppendEntriesResponse(currentTerm, true, log.getLastIndex());
+            handler.handleResponse(currentTerm, true, log.getLastIndex());
+            return;
          } else {
             logger.warn("{} is failing with inconsistent append entries from {}", this, leaderId);
          }
       }
 
       logger.trace("{} is rejecting append entries from {}", this, leaderId);
-      return new AppendEntriesResponse(currentTerm, false, log.getLastIndex());
+      handler.handleResponse(currentTerm, false, log.getLastIndex());
    }
 
    private synchronized void installSnapshot(final Peer peer) {
@@ -467,7 +470,8 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    }
 
    @Override
-   public InstallSnapshotResponse handleInstallSnapshot(long term, long index, long length, int partSize, int part, byte[] data) {
+   public void handleInstallSnapshotRequest(long term, long index, long length, int partSize, int part, byte[] data,
+         InstallSnapshotResponseHandler handler) {
       logger.info("handleInstallSnapshot: length={} part={}", length, part);
       rescheduleElection();
 
@@ -487,13 +491,14 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
                   log.loadSnapshot();
                }
 
-               return new InstallSnapshotResponse(true);
+               handler.handleResponse(true);
+               return;
             } catch (IOException e) {
                logger.error(e.getMessage(), e);
             }
          }
       }
-      return new InstallSnapshotResponse(false);
+      handler.handleResponse(false);
    }
 
    @Override
@@ -559,6 +564,10 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          }
          pendingCommands.clear();
       }
+   }
+
+   public synchronized int getClusterSize() {
+      return 1 + peers.size();
    }
 
 }

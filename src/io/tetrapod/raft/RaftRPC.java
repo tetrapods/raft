@@ -8,12 +8,14 @@ public interface RaftRPC<T extends StateMachine<T>> {
    ///////// Request Handlers ///////// 
 
    public interface Requests<T extends StateMachine<T>> {
-      public RequestVoteResponse handleRequestVote(String clusterName, long term, int candidateId, long lastLogIndex, long lastLogTerm);
+      public void handleVoteRequest(String clusterName, long term, int candidateId, long lastLogIndex, long lastLogTerm,
+            VoteResponseHandler handler);
 
-      public AppendEntriesResponse handleAppendEntries(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<T>[] entries,
-            long leaderCommit);
+      public void handleAppendEntriesRequest(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<T>[] entries,
+            long leaderCommit, AppendEntriesResponseHandler handler);
 
-      public InstallSnapshotResponse handleInstallSnapshot(long term, long index, long length, int partSize, int part, byte[] data);
+      public void handleInstallSnapshotRequest(long term, long index, long length, int partSize, int part, byte[] data,
+            InstallSnapshotResponseHandler handler);
 
       public void handleClientRequest(Command<T> command, ClientResponseHandler<T> handler);
    }
@@ -21,7 +23,7 @@ public interface RaftRPC<T extends StateMachine<T>> {
    ///////// Request Senders ///////// 
 
    public void sendRequestVote(String clusterName, int peerId, long term, int candidateId, long lastLogIndex, long lastLogTerm,
-         RequestVoteResponseHandler handler);
+         VoteResponseHandler handler);
 
    public void sendAppendEntries(int peerId, long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<T>[] entries,
          long leaderCommit, AppendEntriesResponseHandler handler);
@@ -31,7 +33,7 @@ public interface RaftRPC<T extends StateMachine<T>> {
 
    ///////// Response Handlers ///////// 
 
-   public interface RequestVoteResponseHandler {
+   public interface VoteResponseHandler {
       public void handleResponse(long term, boolean voteGranted);
    }
 
@@ -45,38 +47,6 @@ public interface RaftRPC<T extends StateMachine<T>> {
 
    public interface ClientResponseHandler<T extends StateMachine<T>> {
       public void handleResponse(boolean success, Command<T> command);
-   }
-
-   ///////// Response Objects ///////// 
-
-   public class RequestVoteResponse {
-      final long    term;
-      final boolean voteGranted;
-
-      public RequestVoteResponse(long term, boolean voteGranted) {
-         this.term = term;
-         this.voteGranted = voteGranted;
-      }
-   }
-
-   public class AppendEntriesResponse {
-      final long    term;
-      final boolean success;
-      final long    lastLogIndex;
-
-      public AppendEntriesResponse(long term, boolean success, long lastLogIndex) {
-         this.term = term;
-         this.success = success;
-         this.lastLogIndex = lastLogIndex;
-      }
-   }
-
-   public class InstallSnapshotResponse {
-      final boolean success;
-
-      public InstallSnapshotResponse(boolean success) {
-         this.success = success;
-      }
    }
 
 }

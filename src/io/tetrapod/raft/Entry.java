@@ -14,6 +14,18 @@ public class Entry<T extends StateMachine<T>> {
       this.command = command;
    }
 
+   public long getTerm() {
+      return term;
+   }
+
+   public long getIndex() {
+      return index;
+   }
+
+   public Command<T> getCommand() {
+      return command;
+   }
+
    /**
     * Read this command to from an input stream
     */

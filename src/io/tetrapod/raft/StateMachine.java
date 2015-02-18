@@ -49,7 +49,7 @@ public abstract class StateMachine<T extends StateMachine<T>> {
       return SnapshotMode.Blocking;
    }
 
-   protected Command<T> makeCommandById(int id) {
+   public Command<T> makeCommandById(int id) {
       if (id < 0) {
          switch (id) {
             case COMMAND_ID_NEW_TERM:

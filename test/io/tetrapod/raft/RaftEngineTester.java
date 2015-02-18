@@ -190,22 +190,13 @@ public class RaftEngineTester implements RaftRPC<TestStateMachine> {
 
    @Override
    public void sendRequestVote(final String clusterName, int peerId, final long term, final int candidateId, final long lastLogIndex,
-         final long lastLogTerm, final RequestVoteResponseHandler handler) {
+         final long lastLogTerm, final VoteResponseHandler handler) {
       final RaftEngine<?> r = rafts.get(peerId);
       if (r != null) {
          executor.schedule(new Runnable() {
             public void run() {
                try {
-                  final RequestVoteResponse res = r.handleRequestVote(clusterName, term, candidateId, lastLogIndex, lastLogTerm);
-                  executor.schedule(new Runnable() {
-                     public void run() {
-                        try {
-                           handler.handleResponse(res.term, res.voteGranted);
-                        } catch (Throwable t) {
-                           logger.error(t.getMessage(), t);
-                        }
-                     }
-                  }, randomDelay(), TimeUnit.MILLISECONDS);
+                  r.handleVoteRequest(clusterName, term, candidateId, lastLogIndex, lastLogTerm, handler);
                } catch (Throwable t) {
                   logger.error(t.getMessage(), t);
                }
@@ -223,16 +214,7 @@ public class RaftEngineTester implements RaftRPC<TestStateMachine> {
          executor.schedule(new Runnable() {
             public void run() {
                try {
-                  final AppendEntriesResponse res = r.handleAppendEntries(term, leaderId, prevLogIndex, prevLogTerm, entries, leaderCommit);
-                  executor.schedule(new Runnable() {
-                     public void run() {
-                        try {
-                           handler.handleResponse(res.term, res.success, res.lastLogIndex);
-                        } catch (Throwable t) {
-                           logger.error(t.getMessage(), t);
-                        }
-                     }
-                  }, randomDelay(), TimeUnit.MILLISECONDS);
+                  r.handleAppendEntriesRequest(term, leaderId, prevLogIndex, prevLogTerm, entries, leaderCommit, handler);
                } catch (Throwable t) {
                   logger.error(t.getMessage(), t);
                }
@@ -249,16 +231,7 @@ public class RaftEngineTester implements RaftRPC<TestStateMachine> {
          executor.schedule(new Runnable() {
             public void run() {
                try {
-                  final InstallSnapshotResponse res = r.handleInstallSnapshot(term, index, length, partSize, part, data);
-                  executor.schedule(new Runnable() {
-                     public void run() {
-                        try {
-                           handler.handleResponse(res.success);
-                        } catch (Throwable t) {
-                           logger.error(t.getMessage(), t);
-                        }
-                     }
-                  }, randomDelay(), TimeUnit.MILLISECONDS);
+                  r.handleInstallSnapshotRequest(term, index, length, partSize, part, data, handler);
                } catch (Throwable t) {
                   logger.error(t.getMessage(), t);
                }
