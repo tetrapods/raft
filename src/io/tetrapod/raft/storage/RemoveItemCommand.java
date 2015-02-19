@@ -4,36 +4,30 @@ import java.io.*;
 
 import io.tetrapod.raft.Command;
 
-public class PutItemCommand implements Command<StorageStateMachine> {
-   public static final int COMMAND_ID = 1;
+public class RemoveItemCommand implements Command<StorageStateMachine> {
+   public static final int COMMAND_ID = 2;
 
    private String          key;
-   private byte[]          data;
 
-   public PutItemCommand() {}
+   public RemoveItemCommand() {}
 
-   public PutItemCommand(String key, byte[] data) {
+   public RemoveItemCommand(String key) {
       this.key = key;
-      this.data = data;
    }
 
    @Override
    public void applyTo(StorageStateMachine state) {
-      state.putItem(key, data);  
+      state.removeItem(key);
    }
 
    @Override
    public void write(DataOutputStream out) throws IOException {
       out.writeUTF(key);
-      out.writeInt(data.length);
-      out.write(data);
    }
 
    @Override
    public void read(DataInputStream in) throws IOException {
       key = in.readUTF();
-      data = new byte[in.readInt()];
-      in.readFully(data);
    }
 
    @Override

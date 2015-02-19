@@ -15,7 +15,7 @@ import org.slf4j.*;
  * Major TODOS:
  * <ul>
  * <li>Reference StorageStateMachine w/ CopyOnWrite
- * <li>Cluster membership changes</li>
+ * <li>Smooth Cluster membership changes</li>
  * <li>More Unit Tests & Robust Simulator
  * </ul>
  */
@@ -31,21 +31,22 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       Joining, Observer, Follower, Candidate, Leader, Failed, Leaving
    }
 
-   public volatile boolean                  DEBUG           = false;
+   public volatile boolean                     DEBUG           = false;
 
-   private final SecureRandom               random          = new SecureRandom();
-   private final Map<Integer, Peer>         peers           = new HashMap<Integer, Peer>();
-   private final LinkedList<PendingCommand> pendingCommands = new LinkedList<>();
-   private final Log<T>                     log;
-   private final RaftRPC<T>                 rpc;
-   private final Config                     config;
-   private Role                             role            = Role.Joining;
-   private int                              myPeerId;
-   private long                             currentTerm;
-   private int                              votedFor;
-   private int                              leaderId;
-   private long                             electionTimeout;
-   private long                             firstIndexOfTerm;
+   private final SecureRandom                  random          = new SecureRandom();
+   private final Map<Integer, Peer>            peers           = new HashMap<>();
+   private final LinkedList<PendingCommand<T>> pendingCommands = new LinkedList<>();
+   private final Log<T>                        log;
+   private final RaftRPC<T>                    rpc;
+   private final Config                        config;
+
+   private Role                                role            = Role.Joining;
+   private int                                 myPeerId;
+   private long                                currentTerm;
+   private int                                 votedFor;
+   private int                                 leaderId;
+   private long                                electionTimeout;
+   private long                                firstIndexOfTerm;
 
    public static class Peer {
       private final int peerId;
@@ -107,6 +108,10 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
    public int getPeerId() {
       return myPeerId;
+   }
+
+   public synchronized int getClusterSize() {
+      return 1 + peers.size();
    }
 
    public synchronized Role getRole() {
@@ -430,7 +435,8 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          if (snapshotIndex > 0) {
             final int partSize = config.getSnapshotPartSize();
             final long len = peer.snapshotTransfer.length();
-            final byte data[] = getFilePart(peer.snapshotTransfer, part * partSize, (int) Math.min(partSize, len - part * partSize));
+            final byte data[] = RaftUtil.getFilePart(peer.snapshotTransfer, part * partSize,
+                  (int) Math.min(partSize, len - part * partSize));
 
             rpc.sendInstallSnapshot(peer.peerId, currentTerm, myPeerId, len, partSize, part, data, new InstallSnapshotResponseHandler() {
                @Override
@@ -455,18 +461,6 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             });
          }
       }
-   }
-
-   protected static byte[] getFilePart(File file, int offset, int len) {
-      byte[] data = new byte[len];
-      try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
-         raf.seek(offset);
-         raf.read(data, 0, len);
-         return data;
-      } catch (IOException e) {
-         logger.error(e.getMessage(), e);
-      }
-      return null;
    }
 
    @Override
@@ -508,11 +502,11 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
    public synchronized void executeCommand(Command<T> command, ClientResponseHandler<T> handler) {
       if (role == Role.Leader) {
-         Entry<T> e = log.append(currentTerm, command);
+         final Entry<T> e = log.append(currentTerm, command);
          if (e != null) {
             if (handler != null) {
                synchronized (pendingCommands) {
-                  pendingCommands.add(new PendingCommand(e, handler));
+                  pendingCommands.add(new PendingCommand<T>(e, handler));
                }
                return;
             }
@@ -523,29 +517,13 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       }
    }
 
-   private class PendingCommand implements Comparable<PendingCommand> {
-      public final Entry<T>                 entry;
-      public final ClientResponseHandler<T> handler;
-
-      public PendingCommand(Entry<T> entry, ClientResponseHandler<T> handler) {
-         this.entry = entry;
-         this.handler = handler;
-      }
-
-      @Override
-      public int compareTo(PendingCommand o) {
-         final Long index = entry.index;
-         return index.compareTo(o.entry.index);
-      }
-   }
-
    /**
     * Pop all the pending command requests from our list that are now safely replicated to the majority and applied to our state machine
     */
    private void updatePendingRequests() {
       synchronized (pendingCommands) {
          while (!pendingCommands.isEmpty()) {
-            PendingCommand item = pendingCommands.poll();
+            final PendingCommand<T> item = pendingCommands.poll();
             if (item.entry.index <= log.getStateMachineIndex()) {
                logger.info("Returning Pending Command Response To Client {}", item.entry);
                item.handler.handleResponse(true, item.entry.command);
@@ -559,15 +537,11 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
    private synchronized void clearAllPendingRequests() {
       synchronized (pendingCommands) {
-         for (PendingCommand item : pendingCommands) {
+         for (PendingCommand<T> item : pendingCommands) {
             item.handler.handleResponse(false, item.entry.command);
          }
          pendingCommands.clear();
       }
-   }
-
-   public synchronized int getClusterSize() {
-      return 1 + peers.size();
    }
 
 }
