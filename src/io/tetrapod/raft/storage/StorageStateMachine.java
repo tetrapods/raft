@@ -5,11 +5,19 @@ import io.tetrapod.raft.*;
 import java.io.*;
 import java.util.*;
 
+/**
+ * TODO:
+ * <ul>
+ * <li>Unit Testing
+ * <li>Conditional Puts
+ * <li>Annotations to auto-build makeCommand()
+ * </ul>
+ */
 public class StorageStateMachine extends StateMachine<StorageStateMachine> {
 
-   private Map<String, StorageItem>            items       = new HashMap<>();
+   private final Map<String, StorageItem>            items       = new HashMap<>();
 
-   private Map<Long, Map<String, StorageItem>> copyOnWrite = new HashMap<>();
+   private final Map<Long, Map<String, StorageItem>> copyOnWrite = new HashMap<>();
 
    public static class Factory implements StateMachine.Factory<StorageStateMachine> {
       public StorageStateMachine makeStateMachine() {
@@ -70,6 +78,17 @@ public class StorageStateMachine extends StateMachine<StorageStateMachine> {
       }
    }
 
+   private void copyOnWrite(StorageItem item) {
+      synchronized (copyOnWrite) {
+         for (Map<String, StorageItem> modified : copyOnWrite.values()) {
+            // copy it only if it isn't copied yet
+            if (!modified.containsKey(item.key)) {
+               modified.put(item.key, new StorageItem(item));
+            }
+         }
+      }
+   }
+
    public StorageItem getItem(String key) {
       return items.get(key);
    }
@@ -81,6 +100,7 @@ public class StorageStateMachine extends StateMachine<StorageStateMachine> {
       return item == null ? "<null>" : new String(item.getData());
    }
 
+   @RaftCommand(id = 1)
    protected void putItem(String key, byte[] data) {
       StorageItem item = items.get(key);
       if (item != null) {
@@ -91,6 +111,7 @@ public class StorageStateMachine extends StateMachine<StorageStateMachine> {
       }
    }
 
+   @RaftCommand(id = 2)
    public void removeItem(String key) {
       StorageItem item = items.get(key);
       if (item != null) {
@@ -99,14 +120,19 @@ public class StorageStateMachine extends StateMachine<StorageStateMachine> {
       }
    }
 
-   private void copyOnWrite(StorageItem item) {
-      synchronized (copyOnWrite) {
-         for (Map<String, StorageItem> modified : copyOnWrite.values()) {
-            // copy it only if it isn't copied yet
-            if (!modified.containsKey(item.key)) {
-               modified.put(item.key, new StorageItem(item));
-            }
-         }
+   @RaftCommand(id = 3)
+   public long increment(String key, long amount) {
+      StorageItem item = items.get(key);
+      if (item != null) {
+         copyOnWrite(item);
+         long val = RaftUtil.fromBytes(item.getData());
+         val += amount;
+         // TODO: put val into command so it can be used by caller
+         item.modify(RaftUtil.toBytes(val));
+         return val;
+      } else {
+         items.put(key, new StorageItem(key, RaftUtil.toBytes(amount)));
+         return amount;
       }
    }
 
