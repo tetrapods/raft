@@ -31,6 +31,8 @@ public interface RaftRPC<T extends StateMachine<T>> {
    public void sendInstallSnapshot(int peerId, long term, long index, long length, int partSize, int part, byte[] data,
          InstallSnapshotResponseHandler handler);
 
+   public void sendIssueCommand(int peerId, final Command<T> command, ClientResponseHandler<T> handler);
+
    ///////// Response Handlers ///////// 
 
    public interface VoteResponseHandler {
@@ -46,7 +48,7 @@ public interface RaftRPC<T extends StateMachine<T>> {
    }
 
    public interface ClientResponseHandler<T extends StateMachine<T>> {
-      public void handleResponse(boolean success, Command<T> command);
+      public void handleResponse(final Command<T> command);
    }
 
 }

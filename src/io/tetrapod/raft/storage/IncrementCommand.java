@@ -1,14 +1,15 @@
 package io.tetrapod.raft.storage;
 
-import java.io.*;
-
 import io.tetrapod.raft.Command;
 
-public class IncrementCommand implements Command<StorageStateMachine> {
+import java.io.*;
+
+public class IncrementCommand<T extends StorageStateMachine<T>> implements Command<T> {
    public static final int COMMAND_ID = 3;
 
    private String          key;
    private long            amount;
+   private long            result = 0;
 
    public IncrementCommand() {}
 
@@ -17,20 +18,22 @@ public class IncrementCommand implements Command<StorageStateMachine> {
    }
 
    @Override
-   public void applyTo(StorageStateMachine state) {
-      state.increment(key, amount);
+   public void applyTo(T state) {
+      result = state.increment(key, amount);
    }
 
    @Override
    public void write(DataOutputStream out) throws IOException {
       out.writeUTF(key);
       out.writeLong(amount);
+      out.writeLong(result);
    }
 
    @Override
    public void read(DataInputStream in) throws IOException {
       key = in.readUTF();
       amount = in.readLong();
+      result = in.readLong();
    }
 
    @Override

@@ -8,7 +8,7 @@ public class RaftUtilTest {
    public void testLongs1() {
       long val = 123456789101112L;
       byte[] b = RaftUtil.toBytes(val);
-      long val2 = RaftUtil.fromBytes(b);
+      long val2 = RaftUtil.toLong(b);
       Assert.assertEquals(val, val2);
    }
 
@@ -16,7 +16,7 @@ public class RaftUtilTest {
    public void testLongs2() {
       long val = -123456789101112L;
       byte[] b = RaftUtil.toBytes(val);
-      long val2 = RaftUtil.fromBytes(b);
+      long val2 = RaftUtil.toLong(b);
       Assert.assertEquals(val, val2);
    }
 

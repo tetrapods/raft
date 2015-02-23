@@ -20,6 +20,11 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
       }
    }
 
+   public TestStateMachine() {
+      super();
+      registerCommand(TestCommand.COMMAND_ID, TestCommand.getFactory());
+   }
+
    public TestCommand makeNewCommand() {
       return new TestCommand(random.nextLong());
    }
@@ -45,15 +50,6 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
       return String.format("TestStateMachine<%d:%016X>", count, checksum);
    }
 
-   @Override
-   public Command<TestStateMachine> makeCommand(int id) {
-      switch (id) {
-         case TestCommand.COMMAND_ID:
-            return new TestCommand();
-      }
-      return null;
-   }
-
    public static class TestCommand implements Command<TestStateMachine> {
       public static final int COMMAND_ID = 1000;
 
@@ -68,7 +64,7 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
       public long getVal() {
          return val;
       }
-      
+
       @Override
       public void applyTo(TestStateMachine state) {
          state.checksum ^= (val * ++state.count);
@@ -86,6 +82,15 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
       @Override
       public int getCommandType() {
          return COMMAND_ID;
+      }
+
+      public static CommandFactory<TestStateMachine> getFactory() {
+         return new CommandFactory<TestStateMachine>() {
+            @Override
+            public Command<TestStateMachine> makeCommand() {
+               return new TestCommand();
+            }
+         };
       }
    }
 

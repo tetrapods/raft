@@ -126,6 +126,10 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       return log;
    }
 
+   public synchronized int getLeader() {
+      return leaderId;
+   }
+
    public synchronized void addPeer(int peerId) {
       peers.put(peerId, new Peer(peerId));
    }
@@ -500,7 +504,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       executeCommand(command, handler);
    }
 
-   public synchronized void executeCommand(Command<T> command, ClientResponseHandler<T> handler) {
+   public synchronized boolean executeCommand(Command<T> command, ClientResponseHandler<T> handler) {
       if (role == Role.Leader) {
          final Entry<T> e = log.append(currentTerm, command);
          if (e != null) {
@@ -508,13 +512,14 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
                synchronized (pendingCommands) {
                   pendingCommands.add(new PendingCommand<T>(e, handler));
                }
-               return;
             }
+            return true;
          }
       }
       if (handler != null) {
-         handler.handleResponse(false, command);
+         handler.handleResponse(null);
       }
+      return false;
    }
 
    /**
@@ -526,7 +531,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             final PendingCommand<T> item = pendingCommands.poll();
             if (item.entry.index <= log.getStateMachineIndex()) {
                logger.info("Returning Pending Command Response To Client {}", item.entry);
-               item.handler.handleResponse(true, item.entry.command);
+               item.handler.handleResponse(item.entry.command);
             } else {
                pendingCommands.addFirst(item);
                return;
@@ -538,7 +543,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    private synchronized void clearAllPendingRequests() {
       synchronized (pendingCommands) {
          for (PendingCommand<T> item : pendingCommands) {
-            item.handler.handleResponse(false, item.entry.command);
+            item.handler.handleResponse(null);
          }
          pendingCommands.clear();
       }

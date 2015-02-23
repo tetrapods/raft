@@ -10,30 +10,34 @@ import java.util.*;
  * <ul>
  * <li>Unit Testing
  * <li>Conditional Puts
- * <li>Annotations to auto-build makeCommand()
  * </ul>
  */
-public class StorageStateMachine extends StateMachine<StorageStateMachine> {
+public class StorageStateMachine<T extends StorageStateMachine<T>> extends StateMachine<T> {
 
-   private final Map<String, StorageItem>            items       = new HashMap<>();
+   protected final Map<String, StorageItem>            items       = new HashMap<>();
 
-   private final Map<Long, Map<String, StorageItem>> copyOnWrite = new HashMap<>();
+   protected final Map<Long, Map<String, StorageItem>> copyOnWrite = new HashMap<>();
 
-   public static class Factory implements StateMachine.Factory<StorageStateMachine> {
-      public StorageStateMachine makeStateMachine() {
-         return new StorageStateMachine();
-      }
-   }
-
-   @Override
-   public Command<StorageStateMachine> makeCommand(int id) {
-      switch (id) {
-         case PutItemCommand.COMMAND_ID:
-            return new PutItemCommand();
-         case RemoveItemCommand.COMMAND_ID:
-            return new RemoveItemCommand();
-      }
-      return null;
+   public StorageStateMachine() {
+      super();
+      registerCommand(PutItemCommand.COMMAND_ID, new CommandFactory<T>() {
+         @Override
+         public Command<T> makeCommand() {
+            return new PutItemCommand<T>();
+         }
+      });
+      registerCommand(RemoveItemCommand.COMMAND_ID, new CommandFactory<T>() {
+         @Override
+         public Command<T> makeCommand() {
+            return new RemoveItemCommand<T>();
+         }
+      });
+      registerCommand(IncrementCommand.COMMAND_ID, new CommandFactory<T>() {
+         @Override
+         public Command<T> makeCommand() {
+            return new IncrementCommand<T>();
+         }
+      });
    }
 
    @Override
@@ -78,7 +82,7 @@ public class StorageStateMachine extends StateMachine<StorageStateMachine> {
       }
    }
 
-   private void copyOnWrite(StorageItem item) {
+   protected void modify(StorageItem item, byte[] data) {
       synchronized (copyOnWrite) {
          for (Map<String, StorageItem> modified : copyOnWrite.values()) {
             // copy it only if it isn't copied yet
@@ -86,6 +90,11 @@ public class StorageStateMachine extends StateMachine<StorageStateMachine> {
                modified.put(item.key, new StorageItem(item));
             }
          }
+      }
+      if (data != null) {
+         item.modify(data);
+      } else {
+         items.remove(item.key);
       }
    }
 
@@ -100,35 +109,27 @@ public class StorageStateMachine extends StateMachine<StorageStateMachine> {
       return item == null ? "<null>" : new String(item.getData());
    }
 
-   @RaftCommand(id = 1)
    protected void putItem(String key, byte[] data) {
       StorageItem item = items.get(key);
       if (item != null) {
-         copyOnWrite(item);
-         item.modify(data);
+         modify(item, data);
       } else {
          items.put(key, new StorageItem(key, data));
       }
    }
 
-   @RaftCommand(id = 2)
    public void removeItem(String key) {
       StorageItem item = items.get(key);
       if (item != null) {
-         copyOnWrite(item);
-         items.remove(key);
+         modify(item, null);
       }
    }
 
-   @RaftCommand(id = 3)
    public long increment(String key, long amount) {
       StorageItem item = items.get(key);
       if (item != null) {
-         copyOnWrite(item);
-         long val = RaftUtil.fromBytes(item.getData());
-         val += amount;
-         // TODO: put val into command so it can be used by caller
-         item.modify(RaftUtil.toBytes(val));
+         long val = amount + RaftUtil.toLong(item.getData());
+         modify(item, RaftUtil.toBytes(val));
          return val;
       } else {
          items.put(key, new StorageItem(key, RaftUtil.toBytes(amount)));

@@ -1,10 +1,10 @@
 package io.tetrapod.raft.storage;
 
-import java.io.*;
-
 import io.tetrapod.raft.Command;
 
-public class PutItemCommand implements Command<StorageStateMachine> {
+import java.io.*;
+
+public class PutItemCommand<T extends StorageStateMachine<T>> implements Command<T> {
    public static final int COMMAND_ID = 1;
 
    private String          key;
@@ -18,8 +18,8 @@ public class PutItemCommand implements Command<StorageStateMachine> {
    }
 
    @Override
-   public void applyTo(StorageStateMachine state) {
-      state.putItem(key, data);  
+   public void applyTo(T state) {
+      state.putItem(key, data);
    }
 
    @Override

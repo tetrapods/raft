@@ -1,10 +1,10 @@
 package io.tetrapod.raft.storage;
 
-import java.io.*;
-
 import io.tetrapod.raft.Command;
 
-public class RemoveItemCommand implements Command<StorageStateMachine> {
+import java.io.*;
+
+public class RemoveItemCommand<T extends StorageStateMachine<T>> implements Command<T> {
    public static final int COMMAND_ID = 2;
 
    private String          key;
@@ -16,7 +16,7 @@ public class RemoveItemCommand implements Command<StorageStateMachine> {
    }
 
    @Override
-   public void applyTo(StorageStateMachine state) {
+   public void applyTo(T state) {
       state.removeItem(key);
    }
 

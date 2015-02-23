@@ -1,6 +1,7 @@
 package io.tetrapod.raft;
 
 import java.io.*;
+import java.util.*;
 import java.util.zip.*;
 
 import org.slf4j.*;
@@ -37,29 +38,38 @@ public abstract class StateMachine<T extends StateMachine<T>> {
       CopyOnWrite
    }
 
-   private long index;
-   private long term;
+   public static interface CommandFactory<T extends StateMachine<T>> {
+      public Command<T> makeCommand();
+   }
 
-   private long prevIndex;
-   private long prevTerm;
+   public Map<Integer, CommandFactory<T>> commandFactories = new HashMap<>();
 
-   public StateMachine() {}
+   private long                           index;
+   private long                           term;
+
+   private long                           prevIndex;
+   private long                           prevTerm;
+
+   public StateMachine() {
+      registerCommand(COMMAND_ID_NEW_TERM, new CommandFactory<T>() {
+         @Override
+         public Command<T> makeCommand() {
+            return new NewTermCommand<T>();
+         }
+      });
+   }
 
    public SnapshotMode getSnapshotMode() {
       return SnapshotMode.Blocking;
    }
 
-   public Command<T> makeCommandById(int id) {
-      if (id < 0) {
-         switch (id) {
-            case COMMAND_ID_NEW_TERM:
-               return new NewTermCommand<T>();
-         }
-      }
-      return makeCommand(id);
+   public void registerCommand(int id, CommandFactory<T> factory) {
+      commandFactories.put(id, factory);
    }
 
-   public abstract Command<T> makeCommand(int id);
+   public Command<T> makeCommandById(int id) {
+      return commandFactories.get(id).makeCommand();
+   }
 
    public abstract void saveState(DataOutputStream out) throws IOException;
 

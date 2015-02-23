@@ -226,12 +226,28 @@ public class RaftEngineTester implements RaftRPC<TestStateMachine> {
    @Override
    public void sendInstallSnapshot(int peerId, final long term, final long index, final long length, final int partSize, final int part,
          final byte[] data, final InstallSnapshotResponseHandler handler) {
-      final RaftEngine<?> r = rafts.get(peerId);
+      final RaftEngine<TestStateMachine> r = rafts.get(peerId);
       if (r != null) {
          executor.schedule(new Runnable() {
             public void run() {
                try {
                   r.handleInstallSnapshotRequest(term, index, length, partSize, part, data, handler);
+               } catch (Throwable t) {
+                  logger.error(t.getMessage(), t);
+               }
+            }
+         }, randomDelay(), TimeUnit.MILLISECONDS);
+      }
+   }
+
+   @Override
+   public void sendIssueCommand(int peerId, final Command<TestStateMachine> command, final ClientResponseHandler<TestStateMachine> handler) {
+      final RaftEngine<TestStateMachine> r = rafts.get(peerId);
+      if (r != null) {
+         executor.schedule(new Runnable() {
+            public void run() {
+               try {
+                  r.handleClientRequest(command, handler);
                } catch (Throwable t) {
                   logger.error(t.getMessage(), t);
                }
