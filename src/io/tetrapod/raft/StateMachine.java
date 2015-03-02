@@ -17,7 +17,9 @@ public abstract class StateMachine<T extends StateMachine<T>> {
 
    public static final int    SNAPSHOT_FILE_VERSION = 1;
 
-   public static final int    COMMAND_ID_NEW_TERM   = -1;
+   public static final int    COMMAND_ID_ADD_PEER   = -1;
+   public static final int    COMMAND_ID_DEL_PEER   = -2;
+   public static final int    COMMAND_ID_NEW_TERM   = -3;
 
    public enum SnapshotMode {
       /**
@@ -42,15 +44,48 @@ public abstract class StateMachine<T extends StateMachine<T>> {
       public Command<T> makeCommand();
    }
 
-   public Map<Integer, CommandFactory<T>> commandFactories = new HashMap<>();
+   public final Map<Integer, CommandFactory<T>> commandFactories = new HashMap<>();
 
-   private long                           index;
-   private long                           term;
+   private final List<Listener<T>>              listeners        = new ArrayList<>();
 
-   private long                           prevIndex;
-   private long                           prevTerm;
+   // State
+   private long                                 index;
+   private long                                 term;
+   private long                                 prevIndex;
+   private long                                 prevTerm;
+   private final Map<Integer, Peer>             peers            = new HashMap<>();
+
+   public class Peer {
+      final int    peerId;
+      final String host;
+      final int    port;
+
+      Peer(DataInputStream in) throws IOException {
+         peerId = in.readInt();
+         host = in.readUTF();
+         port = in.readInt();
+      }
+
+      public Peer(int peerId, String host, int port) {
+         this.peerId = peerId;
+         this.host = host;
+         this.port = port;
+      }
+
+      private void write(DataOutputStream out) throws IOException {
+         out.writeInt(peerId);
+         out.writeUTF(host);
+         out.writeInt(port);
+      }
+   }
 
    public StateMachine() {
+      registerCommand(COMMAND_ID_ADD_PEER, new CommandFactory<T>() {
+         @Override
+         public Command<T> makeCommand() {
+            return new AddPeerCommand<T>();
+         }
+      });
       registerCommand(COMMAND_ID_NEW_TERM, new CommandFactory<T>() {
          @Override
          public Command<T> makeCommand() {
@@ -81,6 +116,10 @@ public abstract class StateMachine<T extends StateMachine<T>> {
          out.writeLong(term);
          out.writeLong(index);
          out.writeLong(prevTerm);
+         out.writeInt(peers.size());
+         for (Peer peer : peers.values()) {
+            peer.write(out);
+         }
          saveState(out);
       }
    }
@@ -93,6 +132,11 @@ public abstract class StateMachine<T extends StateMachine<T>> {
          index = in.readLong();
          prevIndex = index - 1;
          prevTerm = in.readLong();
+         final int numPeers = in.readInt();
+         for (int i = 0; i < numPeers; i++) {
+            Peer p = new Peer(in);
+            peers.put(p.peerId, p);
+         }
          loadState(in);
       }
    }
@@ -134,9 +178,43 @@ public abstract class StateMachine<T extends StateMachine<T>> {
       entry.command.applyTo((T) this);
       this.index = entry.index;
       this.term = entry.term;
+      fireEntryAppliedEvent(entry);
+   }
+
+   private void fireEntryAppliedEvent(Entry<T> entry) {
+      synchronized (listeners) {
+         for (Listener<T> listener : listeners) {
+            listener.onLogEntryApplied(entry);
+         }
+      }
+   }
+
+   public void addListener(Listener<T> listener) {
+      synchronized (listeners) {
+         this.listeners.add(listener);
+      }
+   }
+
+   public interface Listener<T extends StateMachine<T>> {
+      public void onLogEntryApplied(Entry<T> entry);
    }
 
    public static interface Factory<T> {
       public T makeStateMachine();
    }
+
+   public Peer addPeer(String host, int port, boolean bootstrap) {
+      if (bootstrap) {
+         peers.clear();
+      }
+      int peerId = 1;
+      // find first available peerId
+      while (peers.containsKey(peerId)) {
+         peerId++;
+      }
+      Peer p = new Peer(peerId, host, port);
+      peers.put(peerId, p);
+      return p;
+   }
+
 }

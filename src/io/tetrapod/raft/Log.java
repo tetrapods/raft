@@ -79,7 +79,7 @@ public class Log<T extends StateMachine<T>> {
       assert entry != null;
       // check if the entry is already in our log
       if (entry.index <= lastIndex) {
-         assert entry.index >= commitIndex : entry.index + " >= " + commitIndex;
+         //assert entry.index >= commitIndex : entry.index + " >= " + commitIndex;
          if (getTerm(entry.index) != entry.term) {
             logger.warn("Log is conflicted at {} : {} ", entry, getTerm(entry.index));
             wipeConflictedEntries(entry.index);
@@ -260,6 +260,9 @@ public class Log<T extends StateMachine<T>> {
          try {
             updateStateMachine();
             compact();
+            if (out != null) {
+               out.flush();
+            }
             synchronized (this) {
                wait(100);
             }
