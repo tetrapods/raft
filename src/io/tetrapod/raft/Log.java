@@ -171,6 +171,7 @@ public class Log<T extends StateMachine<T>> {
       while (lastIndex >= index) {
          entries.remove((int) (lastIndex-- - firstIndex));
       }
+      //commitIndex = Math.min(commitIndex, lastIndex);
       if (lastIndex > 0) {
          lastTerm = getTerm(lastIndex);
       } else {
@@ -347,7 +348,7 @@ public class Log<T extends StateMachine<T>> {
       } while (entry != null);
 
       // get the most recent file of entries
-      List<Entry<T>> list = loadLogFile(getFile(stateMachine.getIndex()));
+      final List<Entry<T>> list = loadLogFile(getFile(stateMachine.getIndex()));
       if (list != null && list.size() > 0) {
          assert (entries.size() == 0);
          entries.addAll(list);
@@ -368,6 +369,7 @@ public class Log<T extends StateMachine<T>> {
    /**
     * An LRU cache of entries loaded from disk
     */
+   @SuppressWarnings("serial")
    private final Map<String, List<Entry<T>>> entryFileCache = new LinkedHashMap<String, List<Entry<T>>>(3, 0.75f, true) {
                                                                @Override
                                                                protected boolean removeEldestEntry(Map.Entry<String, List<Entry<T>>> eldest) {

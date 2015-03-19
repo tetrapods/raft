@@ -3,9 +3,12 @@ package io.tetrapod.raft.storage;
 import io.tetrapod.raft.Command;
 
 import java.io.*;
+import java.nio.charset.Charset;
 
 public class PutItemCommand<T extends StorageStateMachine<T>> implements Command<T> {
    public static final int COMMAND_ID = 1;
+
+   public static Charset   UTF8       = Charset.forName("UTF-8");
 
    private String          key;
    private byte[]          data;
@@ -15,6 +18,11 @@ public class PutItemCommand<T extends StorageStateMachine<T>> implements Command
    public PutItemCommand(String key, byte[] data) {
       this.key = key;
       this.data = data;
+   }
+
+   public PutItemCommand(String key, String data) {
+      this.key = key;
+      this.data = data.getBytes(UTF8);
    }
 
    @Override

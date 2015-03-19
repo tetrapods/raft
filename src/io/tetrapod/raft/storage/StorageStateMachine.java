@@ -82,7 +82,7 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
       }
    }
 
-   protected void modify(StorageItem item, byte[] data) {
+   protected void modify(StorageItem item) {
       synchronized (copyOnWrite) {
          for (Map<String, StorageItem> modified : copyOnWrite.values()) {
             // copy it only if it isn't copied yet
@@ -91,6 +91,10 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
             }
          }
       }
+   }
+
+   protected void modify(StorageItem item, byte[] data) {
+      modify(item);
       if (data != null) {
          item.modify(data);
       } else {
@@ -134,6 +138,26 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
       } else {
          items.put(key, new StorageItem(key, RaftUtil.toBytes(amount)));
          return amount;
+      }
+   }
+
+   public boolean lock(String key, long leaseForMillis) {
+      final long curTime = System.currentTimeMillis();
+      StorageItem item = items.get(key);
+      if (item != null) {
+         modify(item);
+      } else {
+         item = new StorageItem(key, null);
+         items.put(key, item);
+      }
+      return item.lock(leaseForMillis, curTime);
+   }
+
+   public void unlock(String key) {
+      final StorageItem item = items.get(key);
+      if (item != null) {
+         modify(item);
+         item.unlock();
       }
    }
 

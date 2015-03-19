@@ -41,4 +41,8 @@ public class IncrementCommand<T extends StorageStateMachine<T>> implements Comma
       return COMMAND_ID;
    }
 
+   public long getResult() {
+      return result;
+   }
+   
 }

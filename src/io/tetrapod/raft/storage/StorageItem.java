@@ -10,6 +10,7 @@ public class StorageItem {
    public final String key;
    private int         version;
    private byte[]      data;
+   private long        lockExpiry;
 
    public StorageItem(String key) {
       this.key = key;
@@ -31,6 +32,7 @@ public class StorageItem {
       this.data = new byte[in.readInt()];
       in.readFully(this.data);
       this.version = in.readInt();
+      this.lockExpiry = in.readLong();
    }
 
    public void write(DataOutputStream out) throws IOException {
@@ -38,6 +40,7 @@ public class StorageItem {
       out.writeInt(data.length);
       out.write(data);
       out.writeInt(version);
+      out.writeLong(lockExpiry);
    }
 
    public void setData(byte[] data) {
@@ -48,6 +51,15 @@ public class StorageItem {
       return this.data;
    }
 
+   public String getDataAsString() {
+      if (data != null) {
+         try {
+            return new String(data, "UTF-8");
+         } catch (UnsupportedEncodingException e) {}
+      }
+      return null;
+   }
+
    public int getVersion() {
       return version;
    }
@@ -55,6 +67,19 @@ public class StorageItem {
    public void modify(byte[] data) {
       this.data = data;
       this.version++;
+   }
+
+   public boolean lock(long leaseForMillis, long curTime) {
+      if (lockExpiry > curTime)
+         return false;
+      this.version++;
+      this.lockExpiry = curTime + leaseForMillis;
+      return true;
+   }
+
+   public void unlock() {
+      this.version++;
+      this.lockExpiry = 0;
    }
 
 }

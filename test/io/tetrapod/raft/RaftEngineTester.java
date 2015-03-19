@@ -64,7 +64,7 @@ public class RaftEngineTester implements RaftRPC<TestStateMachine> {
       }
 
       for (RaftEngine<?> raft : rafts.values()) {
-         raft.start();
+         raft.start(raft.getPeerId());
       }
 
       logRafts();

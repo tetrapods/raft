@@ -79,21 +79,23 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    public RaftEngine(Config config, StateMachine.Factory<T> stateMachineFactory, RaftRPC<T> rpc) throws IOException {
       this.rpc = rpc;
       this.config = config;
-      this.log = new Log<T>(config, stateMachineFactory.makeStateMachine());
+      T stateMachine = stateMachineFactory.makeStateMachine();
+      stateMachine.addListener(this);
+      this.log = new Log<T>(config, stateMachine);
       this.currentTerm = log.getLastTerm();
-      this.log.getStateMachine().addListener(this);
    }
 
    public synchronized void bootstrap(String host, int port) {
-      setPeerId(1);
-      start();
+      peers.clear();
+      currentTerm++;
+      start(1);
       becomeLeader();
       executeCommand(new AddPeerCommand<T>(host, port, true), null);
    }
 
-   public synchronized void start() {
-      assert (myPeerId != 0);
-      role = Role.Follower; // hack
+   public synchronized void start(int peerId) {
+      this.myPeerId = peerId;
+      this.role = Role.Follower;
       rescheduleElection();
       launchPeriodicTasksThread();
    }
@@ -175,6 +177,10 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
       switch (role) {
          case Joining:
+            if (role == Role.Joining) {
+               role = Role.Follower;
+               rescheduleElection();
+            }
             break;
          case Observer:
             break;
@@ -366,7 +372,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
                                     }
                                     updatePeer(peer);
                                  } else {
-                                    assert peer.nextIndex > 1 : "peer.nextIndex = " + peer.nextIndex;
+                                    //assert peer.nextIndex > 1 : "peer.nextIndex = " + peer.nextIndex;
                                     if (peer.nextIndex > lastLogIndex) {
                                        peer.nextIndex = Math.max(lastLogIndex, 1);
                                     } else if (peer.nextIndex > 1) {
@@ -386,9 +392,9 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    public synchronized void handleAppendEntriesRequest(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<T>[] entries,
          long leaderCommit, AppendEntriesResponseHandler handler) {
 
-      if (!isValidPeer(leaderId) && role != Role.Joining) {
-         return;
-      }
+      //      if (!isValidPeer(leaderId) && role != Role.Joining) {
+      //         return;
+      //      }
 
       logger.trace(String.format("%s append entries from %d: from <%d:%d>", this, leaderId, prevLogTerm, prevLogIndex));
       if (term >= currentTerm) {
@@ -562,13 +568,14 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    public void onLogEntryApplied(Entry<T> entry) {
       final Command<T> command = entry.getCommand();
       if (command.getCommandType() == StateMachine.COMMAND_ID_ADD_PEER) {
-         int peerId = ((AddPeerCommand<T>) command).peerId;
-         if (peerId != this.myPeerId) {
-            peers.put(peerId, new Peer(peerId));
-         } else if (role == Role.Joining) {
-            role = Role.Follower;
+         final AddPeerCommand<T> addPeerCommand = ((AddPeerCommand<T>) command);
+         if (addPeerCommand.bootstrap) {
+            peers.clear();
+         }
+         if (addPeerCommand.peerId != this.myPeerId) {
+            logger.info("\n\n ********************** AddPeer #{} **********************\n\n", addPeerCommand.peerId);
+            peers.put(addPeerCommand.peerId, new Peer(addPeerCommand.peerId));
          }
       }
    }
-
 }
