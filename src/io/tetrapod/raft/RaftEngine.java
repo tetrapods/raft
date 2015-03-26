@@ -207,7 +207,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       for (Peer p : peers.values()) {
          if (p.matchIndex >= index) {
             count++;
-            if (count > needed)
+            if (count >= needed)
                return true;
          }
       }
@@ -570,12 +570,17 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       if (command.getCommandType() == StateMachine.COMMAND_ID_ADD_PEER) {
          final AddPeerCommand<T> addPeerCommand = ((AddPeerCommand<T>) command);
          if (addPeerCommand.bootstrap) {
+            logger.info("\n\n ********************** BOOTSTRAP **********************\n\n", addPeerCommand.peerId);
             peers.clear();
          }
          if (addPeerCommand.peerId != this.myPeerId) {
             logger.info("\n\n ********************** AddPeer #{} **********************\n\n", addPeerCommand.peerId);
             peers.put(addPeerCommand.peerId, new Peer(addPeerCommand.peerId));
          }
+      } else if (command.getCommandType() == StateMachine.COMMAND_ID_DEL_PEER) {
+         final DelPeerCommand<T> delPeerCommand = ((DelPeerCommand<T>) command);
+         logger.info("\n\n ********************** DelPeer #{} **********************\n\n", delPeerCommand.peerId);
+         peers.remove(delPeerCommand.peerId);
       }
    }
 }

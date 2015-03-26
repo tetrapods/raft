@@ -10,16 +10,18 @@ import org.slf4j.*;
  * The state machine applies commands to update state.
  * 
  * It contains the state we want to coordinate across a distributed cluster.
+ * 
  */
 public abstract class StateMachine<T extends StateMachine<T>> {
 
-   public static final Logger logger                = LoggerFactory.getLogger(StateMachine.class);
+   public static final Logger logger                 = LoggerFactory.getLogger(StateMachine.class);
 
-   public static final int    SNAPSHOT_FILE_VERSION = 1;
+   public static final int    SNAPSHOT_FILE_VERSION  = 1;
 
-   public static final int    COMMAND_ID_ADD_PEER   = -1;
-   public static final int    COMMAND_ID_DEL_PEER   = -2;
-   public static final int    COMMAND_ID_NEW_TERM   = -3;
+   public static final int    COMMAND_ID_ADD_PEER    = -1;
+   public static final int    COMMAND_ID_DEL_PEER    = -2;
+   public static final int    COMMAND_ID_NEW_TERM    = -3;
+   public static final int    COMMAND_ID_NEW_COMMAND = -4;
 
    public enum SnapshotMode {
       /**
@@ -86,6 +88,12 @@ public abstract class StateMachine<T extends StateMachine<T>> {
             return new AddPeerCommand<T>();
          }
       });
+      registerCommand(COMMAND_ID_DEL_PEER, new CommandFactory<T>() {
+         @Override
+         public Command<T> makeCommand() {
+            return new DelPeerCommand<T>();
+         }
+      });
       registerCommand(COMMAND_ID_NEW_TERM, new CommandFactory<T>() {
          @Override
          public Command<T> makeCommand() {
@@ -99,11 +107,16 @@ public abstract class StateMachine<T extends StateMachine<T>> {
    }
 
    public void registerCommand(int id, CommandFactory<T> factory) {
+      assert !commandFactories.containsKey(id);
       commandFactories.put(id, factory);
    }
 
    public Command<T> makeCommandById(int id) {
-      return commandFactories.get(id).makeCommand();
+      CommandFactory<T> factory = commandFactories.get(id);
+      if (factory == null) {
+         throw new RuntimeException("Could not find command factory for command type " + id);
+      }
+      return factory.makeCommand();
    }
 
    public abstract void saveState(DataOutputStream out) throws IOException;
@@ -215,6 +228,10 @@ public abstract class StateMachine<T extends StateMachine<T>> {
       Peer p = new Peer(peerId, host, port);
       peers.put(peerId, p);
       return p;
+   }
+
+   public void delPeer(int peerId) {
+      peers.remove(peerId);
    }
 
 }

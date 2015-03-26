@@ -38,6 +38,18 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
             return new IncrementCommand<T>();
          }
       });
+      registerCommand(LockCommand.COMMAND_ID, new CommandFactory<T>() {
+         @Override
+         public Command<T> makeCommand() {
+            return new LockCommand<T>();
+         }
+      });
+      registerCommand(UnlockCommand.COMMAND_ID, new CommandFactory<T>() {
+         @Override
+         public Command<T> makeCommand() {
+            return new UnlockCommand<T>();
+         }
+      });
    }
 
    @Override

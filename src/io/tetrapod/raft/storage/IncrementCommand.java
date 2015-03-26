@@ -9,12 +9,18 @@ public class IncrementCommand<T extends StorageStateMachine<T>> implements Comma
 
    private String          key;
    private long            amount;
-   private long            result = 0;
+   private long            result     = 0;
 
    public IncrementCommand() {}
 
    public IncrementCommand(String key) {
       this.key = key;
+      this.amount = 1;
+   }
+
+   public IncrementCommand(String key, int amount) {
+      this.key = key;
+      this.amount = amount;
    }
 
    @Override
@@ -44,5 +50,5 @@ public class IncrementCommand<T extends StorageStateMachine<T>> implements Comma
    public long getResult() {
       return result;
    }
-   
+
 }
