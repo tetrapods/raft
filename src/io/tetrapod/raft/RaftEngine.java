@@ -51,12 +51,12 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    private long                                firstIndexOfTerm;
 
    public static class Peer {
-      private final int peerId;
-      private long      lastAppendMillis;
-      private long      nextIndex = 1;
-      private long      matchIndex;
-      private boolean   appendPending;
-      private File      snapshotTransfer;
+      public final int peerId;
+      private long     lastAppendMillis;
+      private long     nextIndex = 1;
+      private long     matchIndex;
+      private boolean  appendPending;
+      private File     snapshotTransfer;
 
       public Peer(int peerId) {
          this.peerId = peerId;
@@ -103,6 +103,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    public synchronized void stop() {
       role = Role.Leaving;
       clearAllPendingRequests();
+      log.stop();
    }
 
    @Override
@@ -236,6 +237,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       final Value<Integer> votes = new Value<>(1);
       role = Role.Candidate;
       ++currentTerm;
+      leaderId = 0;
       votedFor = myPeerId;
       logger.info("{} is calling an election (term {})", this, currentTerm);
       if (peers.size() > 0) {
@@ -402,6 +404,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             stepDown(term);
          }
          if (this.leaderId != leaderId) {
+            this.leaderId = leaderId;
             stepDown(term);
          }
          rescheduleElection();
@@ -559,7 +562,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    }
 
    public synchronized void addPeer(int peerId) {
-      if (peerId != this.myPeerId) {
+      if (peerId != 0 && peerId != this.myPeerId) {
          peers.put(peerId, new Peer(peerId));
       }
    }
@@ -582,5 +585,9 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          logger.info("\n\n ********************** DelPeer #{} **********************\n\n", delPeerCommand.peerId);
          peers.remove(delPeerCommand.peerId);
       }
+   }
+
+   public Collection<Peer> getPeers() {
+      return peers.values();
    }
 }
