@@ -543,7 +543,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             final PendingCommand<T> item = pendingCommands.poll();
             if (item.entry.index <= log.getStateMachineIndex()) {
                logger.info("Returning Pending Command Response To Client {}", item.entry);
-               item.handler.handleResponse(item.entry.command);
+               item.handler.handleResponse(item.entry);
             } else {
                pendingCommands.addFirst(item);
                return;

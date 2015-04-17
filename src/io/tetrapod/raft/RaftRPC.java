@@ -48,7 +48,7 @@ public interface RaftRPC<T extends StateMachine<T>> {
    }
 
    public interface ClientResponseHandler<T extends StateMachine<T>> {
-      public void handleResponse(final Command<T> command);
+      public void handleResponse(final Entry<T> entry);
    }
 
    //   public interface ClientResponseHandler<T extends StateMachine<T>, X extends Command<T>> {
