@@ -91,6 +91,8 @@ public class Log<T extends StateMachine<T>> {
       // validate that this is an acceptable entry to append next
       if (entry.index == lastIndex + 1 && entry.term >= lastTerm) {
 
+         //logger.info("### APPENDING {} {} - {}", entry.term, entry.index, entry.command);
+
          // append to log
          entries.add(entry);
 
@@ -99,6 +101,8 @@ public class Log<T extends StateMachine<T>> {
             assert (entries.size() == 1);
             firstIndex = entry.index;
             firstTerm = entry.term;
+
+            logger.info("Setting First Index = {} ({})", firstIndex, entry.index);
          }
          lastIndex = entry.index;
          lastTerm = entry.term;
@@ -127,11 +131,20 @@ public class Log<T extends StateMachine<T>> {
    public synchronized Entry<T> getEntry(long index) {
       if (index > 0 && index <= lastIndex) {
          if (index >= firstIndex && entries.size() > 0) {
+
+
             assert index - firstIndex < Integer.MAX_VALUE;
-            assert (index - firstIndex) < entries.size() : "index=" + index + ", first=" + firstIndex;
-            return entries.get((int) (index - firstIndex));
+            assert firstIndex == entries.get(0).index;
+            //assert (index - firstIndex) < entries.size() : "index=" + index + ", first=" + firstIndex;
+            final Entry<T> e = entries.get((int) (index - firstIndex));
+            assert e.index == index;
+            return e;
          } else {
-            return getEntryFromDisk(index);
+            try {
+               return getEntryFromDisk(index);
+            } catch (IOException e) {
+               throw new RuntimeException(e);
+            }
          }
       }
       return null; // we don't have it!
@@ -163,7 +176,11 @@ public class Log<T extends StateMachine<T>> {
       if (index == stateMachine.getIndex()) {
          return stateMachine.getTerm();
       }
-      return getEntry(index).term;
+      final Entry<T> e = getEntry(index);
+      if (e == null) {
+         logger.error("Could not find entry in log for {}", index);
+      }
+      return e.term;
    }
 
    private synchronized void wipeConflictedEntries(long index) {
@@ -308,6 +325,7 @@ public class Log<T extends StateMachine<T>> {
             while (commitIndex > stateMachine.getIndex()) {
                final Entry<T> e = getEntry(stateMachine.getIndex() + 1);
                assert (e != null);
+               assert (e.index == stateMachine.getIndex() + 1);
                stateMachine.apply(e);
                ensureCorrectLogFile(e.index);
                e.write(out);
@@ -330,6 +348,10 @@ public class Log<T extends StateMachine<T>> {
          logger.info("Loaded snapshot @ {}:{}", stateMachine.getTerm(), stateMachine.getIndex());
          lastIndex = stateMachine.getIndex();
          lastTerm = stateMachine.getTerm();
+         firstIndex = 0;
+         firstTerm = 0;
+         entries.clear();
+         entryFileCache.clear();
       }
    }
 
@@ -363,6 +385,7 @@ public class Log<T extends StateMachine<T>> {
          for (Entry<T> e : list) {
             e.write(out);
          }
+         logger.info("First Index = {} ({})", firstIndex, entries.get(0).index);
       }
    }
 
@@ -385,14 +408,14 @@ public class Log<T extends StateMachine<T>> {
             int i = (int) (index - list.get(0).index);
             if (i >= 0 && i < list.size()) {
                assert list.get(i).index == index;
-               return list.get(i);
+                  return list.get(i);
             }
          }
       }
       return null;
    }
 
-   public List<Entry<T>> loadLogFile(File file) {
+   public List<Entry<T>> loadLogFile(File file) throws IOException {
       synchronized (entryFileCache) {
          List<Entry<T>> list = entryFileCache.get(file.getName());
          if (list == null) {
@@ -401,13 +424,18 @@ public class Log<T extends StateMachine<T>> {
                try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(file)))) {
                   final int version = in.readInt();
                   assert (version <= LOG_FILE_VERSION);
+                  Entry<T> last = null;
                   while (true) {
-                     list.add(new Entry<T>(in, stateMachine));
+                     final Entry<T> e = new Entry<T>(in, stateMachine);
+                     if (last != null) {
+                        assert e.term >= last.term;
+                        assert e.index == last.index + 1;
+                     }
+                     list.add(e);
+                     last = e;
                   }
                } catch (EOFException t) {
                   logger.debug("Read {} from {}", list.size(), file);
-               } catch (Throwable t) {
-                  logger.error(t.getMessage(), t);
                }
             }
             entryFileCache.put(file.getName(), list);
@@ -421,6 +449,11 @@ public class Log<T extends StateMachine<T>> {
     */
    private synchronized void compact() {
       if (entries.size() > config.getEntriesPerFile() * 2) {
+
+         if (firstIndex > commitIndex || firstIndex > stateMachine.getIndex() || firstIndex > lastIndex - config.getEntriesPerFile()) {
+            return;
+         }
+
          logger.info("Compacting log size = {}", entries.size());
          List<Entry<T>> entriesToKeep = new ArrayList<>();
          for (Entry<T> e : entries) {
@@ -433,7 +466,7 @@ public class Log<T extends StateMachine<T>> {
          Entry<T> first = entries.get(0);
          firstIndex = first.index;
          firstTerm = first.term;
-         logger.info("Compacted log new size = {}", entries.size());
+         logger.info("Compacted log new size = {}, firstIndex = {}", entries.size(), firstIndex);
       }
 
       if (config.getDeleteOldFiles()) {
