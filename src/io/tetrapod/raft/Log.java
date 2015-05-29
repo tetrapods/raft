@@ -132,7 +132,6 @@ public class Log<T extends StateMachine<T>> {
       if (index > 0 && index <= lastIndex) {
          if (index >= firstIndex && entries.size() > 0) {
 
-
             assert index - firstIndex < Integer.MAX_VALUE;
             assert firstIndex == entries.get(0).index;
             //assert (index - firstIndex) < entries.size() : "index=" + index + ", first=" + firstIndex;
@@ -400,7 +399,7 @@ public class Log<T extends StateMachine<T>> {
                                                                }
                                                             };
 
-   private Entry<T> getEntryFromDisk(long index) {
+   private Entry<T> getEntryFromDisk(long index) throws IOException {
       File file = getFile(index);
       if (file.exists()) {
          List<Entry<T>> list = loadLogFile(file);
@@ -408,7 +407,7 @@ public class Log<T extends StateMachine<T>> {
             int i = (int) (index - list.get(0).index);
             if (i >= 0 && i < list.size()) {
                assert list.get(i).index == index;
-                  return list.get(i);
+               return list.get(i);
             }
          }
       }
