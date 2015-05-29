@@ -97,6 +97,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       this.myPeerId = peerId;
       this.role = Role.Follower;
       rescheduleElection();
+      this.electionTimeout += 10000; // initial grace period on startup
       launchPeriodicTasksThread();
    }
 
@@ -339,24 +340,30 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    }
 
    private synchronized void updatePeer(final Peer peer) {
-      if (peer.appendPending && System.currentTimeMillis() > peer.lastAppendMillis + 10000) {
+      final long now = System.currentTimeMillis();
+      if (peer.appendPending && now > peer.lastAppendMillis + 5000) {
          peer.appendPending = false; // time out the last append
       }
-      if (!peer.appendPending
-            && (peer.nextIndex < log.getLastIndex() || System.currentTimeMillis() > peer.lastAppendMillis + config.getHeartbeatMillis())) {
+      if (!peer.appendPending && (peer.nextIndex < log.getLastIndex() || now > peer.lastAppendMillis + config.getHeartbeatMillis())) {
          if (peer.nextIndex == 0) {
             assert (peer.nextIndex > 0);
          }
-         final Entry<T>[] entries = log.getEntries(peer.nextIndex, config.getMaxEntriesPerRequest());
+         // for a fresh peer we'll start with an empty list of entries so we can learn what index the node is already on in it's log
+         final boolean fresh = peer.lastAppendMillis == 0;
 
-         if (peer.nextIndex < log.getFirstIndex() && entries == null) {
+         // fetch entries from log to send to the peer
+         final Entry<T>[] entries = (!fresh && peer.snapshotTransfer == null) ? log.getEntries(peer.nextIndex,
+               config.getMaxEntriesPerRequest()) : null;
+
+         // if this peer needs entries we no longer have, then send them a snapshot
+         if (!fresh && peer.nextIndex < log.getFirstIndex() && entries == null) {
             installSnapshot(peer);
          } else {
             long prevLogIndex = peer.nextIndex - 1;
             long prevLogTerm = log.getTerm(prevLogIndex);
 
             logger.trace("{} is sending append entries to {}", this, peer.peerId);
-            peer.lastAppendMillis = System.currentTimeMillis();
+            peer.lastAppendMillis = now;
             peer.appendPending = true;
             rpc.sendAppendEntries(peer.peerId, currentTerm, myPeerId, prevLogIndex, prevLogTerm, entries, log.getCommitIndex(),
                   new AppendEntriesResponseHandler() {
@@ -447,6 +454,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       // we won't be able to catch them up. We also need to make sure we don't delete the snapshot file
       // we're sending. 
       if (peer.snapshotTransfer != null) {
+         logger.info("Installing Snapshot to {} Part #{}", peer, part);
          final long snapshotIndex = StateMachine.getSnapshotIndex(peer.snapshotTransfer);
          if (snapshotIndex > 0) {
             final int partSize = config.getSnapshotPartSize();
@@ -499,6 +507,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
                if (raf.length() == length) {
                   file.renameTo(new File(log.getLogDirectory(), "raft.snapshot"));
                   log.loadSnapshot();
+                  rescheduleElection();
                }
 
                handler.handleResponse(true);
@@ -573,16 +582,16 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       if (command.getCommandType() == StateMachine.COMMAND_ID_ADD_PEER) {
          final AddPeerCommand<T> addPeerCommand = ((AddPeerCommand<T>) command);
          if (addPeerCommand.bootstrap) {
-            logger.info("\n\n ********************** BOOTSTRAP **********************\n\n", addPeerCommand.peerId);
+            logger.info(" ********************** BOOTSTRAP **********************", addPeerCommand.peerId);
             peers.clear();
          }
          if (addPeerCommand.peerId != this.myPeerId) {
-            logger.info("\n\n ********************** AddPeer #{} **********************\n\n", addPeerCommand.peerId);
+            logger.info(" ********************** AddPeer #{} ********************** ", addPeerCommand.peerId);
             peers.put(addPeerCommand.peerId, new Peer(addPeerCommand.peerId));
          }
       } else if (command.getCommandType() == StateMachine.COMMAND_ID_DEL_PEER) {
          final DelPeerCommand<T> delPeerCommand = ((DelPeerCommand<T>) command);
-         logger.info("\n\n ********************** DelPeer #{} **********************\n\n", delPeerCommand.peerId);
+         logger.info(" ********************** DelPeer #{} ********************** ", delPeerCommand.peerId);
          peers.remove(delPeerCommand.peerId);
       }
    }
