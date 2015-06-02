@@ -94,11 +94,16 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    }
 
    public synchronized void start(int peerId) {
-      this.myPeerId = peerId;
+      setPeerId(peerId);
       this.role = Role.Follower;
       rescheduleElection();
       this.electionTimeout += 10000; // initial grace period on startup
       launchPeriodicTasksThread();
+   }
+
+   public synchronized void startAsObserver() {
+      this.role = Role.Observer;
+      this.electionTimeout = Long.MAX_VALUE;
    }
 
    public synchronized void stop() {
@@ -118,6 +123,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
    public synchronized void setPeerId(int peerId) {
       this.myPeerId = peerId;
+      peers.remove(peerId);
    }
 
    public int getPeerId() {

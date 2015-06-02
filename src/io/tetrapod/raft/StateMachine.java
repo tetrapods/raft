@@ -57,10 +57,10 @@ public abstract class StateMachine<T extends StateMachine<T>> {
    private long                                 prevTerm;
    private final Map<Integer, Peer>             peers            = new HashMap<>();
 
-   public class Peer {
-      final int    peerId;
-      final String host;
-      final int    port;
+   public static class Peer {
+      public final int    peerId;
+      public final String host;
+      public final int    port;
 
       Peer(DataInputStream in) throws IOException {
          peerId = in.readInt();
@@ -232,6 +232,10 @@ public abstract class StateMachine<T extends StateMachine<T>> {
 
    public void delPeer(int peerId) {
       peers.remove(peerId);
+   }
+
+   public Collection<Peer> getPeers() {
+      return peers.values();
    }
 
 }
