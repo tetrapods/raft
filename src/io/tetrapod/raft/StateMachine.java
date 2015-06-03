@@ -14,14 +14,14 @@ import org.slf4j.*;
  */
 public abstract class StateMachine<T extends StateMachine<T>> {
 
-   public static final Logger logger                 = LoggerFactory.getLogger(StateMachine.class);
+   public static final Logger logger                  = LoggerFactory.getLogger(StateMachine.class);
 
-   public static final int    SNAPSHOT_FILE_VERSION  = 1;
+   public static final int    SNAPSHOT_FILE_VERSION   = 1;
 
-   public static final int    COMMAND_ID_ADD_PEER    = -1;
-   public static final int    COMMAND_ID_DEL_PEER    = -2;
-   public static final int    COMMAND_ID_NEW_TERM    = -3;
-   public static final int    COMMAND_ID_NEW_COMMAND = -4;
+   public static final int    COMMAND_ID_ADD_PEER     = -1;
+   public static final int    COMMAND_ID_DEL_PEER     = -2;
+   public static final int    COMMAND_ID_NEW_TERM     = -3;
+   public static final int    COMMAND_ID_HEALTH_CHECK = -4;
 
    public enum SnapshotMode {
       /**
@@ -98,6 +98,12 @@ public abstract class StateMachine<T extends StateMachine<T>> {
          @Override
          public Command<T> makeCommand() {
             return new NewTermCommand<T>();
+         }
+      });
+      registerCommand(COMMAND_ID_HEALTH_CHECK, new CommandFactory<T>() {
+         @Override
+         public Command<T> makeCommand() {
+            return new HealthCheckCommand<T>();
          }
       });
    }
