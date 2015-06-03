@@ -38,6 +38,8 @@ public class Log<T extends StateMachine<T>> {
    // We keep some key index & term variables that may or 
    // may not be in our buffer and are accessed frequently:
 
+   private long                 snapshotIndex    = 0;
+   private long                 snapshotTerm     = 0;
    private long                 firstIndex       = 0;
    private long                 firstTerm        = 0;
    private long                 lastIndex        = 0;
@@ -175,6 +177,9 @@ public class Log<T extends StateMachine<T>> {
       if (index == stateMachine.getIndex()) {
          return stateMachine.getTerm();
       }
+      if (index == snapshotIndex) {
+         return snapshotTerm;
+      }
       final Entry<T> e = getEntry(index);
       if (e == null) {
          logger.error("Could not find entry in log for {}", index);
@@ -193,6 +198,9 @@ public class Log<T extends StateMachine<T>> {
       } else {
          lastTerm = 0;
       }
+
+      assert index > commitIndex;
+      assert index > snapshotIndex;
    }
 
    public List<Entry<T>> getEntries() {
@@ -240,8 +248,10 @@ public class Log<T extends StateMachine<T>> {
       if (index == 0 && term == 0 || index > lastIndex) {
          return true;
       }
+      if (index == snapshotIndex && term == snapshotTerm) {
+         return true;
+      }
       final Entry<T> entry = getEntry(index);
-
       if (entry == null) {
          if (index == stateMachine.getPrevIndex()) {
             return term == stateMachine.getPrevTerm();
@@ -345,8 +355,8 @@ public class Log<T extends StateMachine<T>> {
          logger.info("Loading snapshot {} ", file);
          stateMachine.readSnapshot(file);
          logger.info("Loaded snapshot @ {}:{}", stateMachine.getTerm(), stateMachine.getIndex());
-         lastIndex = stateMachine.getIndex();
-         lastTerm = stateMachine.getTerm();
+         commitIndex = snapshotIndex = lastIndex = stateMachine.getIndex();
+         snapshotTerm = lastTerm = stateMachine.getTerm();
          firstIndex = 0;
          firstTerm = 0;
          entries.clear();
@@ -379,12 +389,14 @@ public class Log<T extends StateMachine<T>> {
          lastTerm = entries.get(entries.size() - 1).term;
          // TODO: rename existing file in case of failure
          // re-write out the last file
-         out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(getFile(firstIndex))));
+         out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(getFile(firstIndex), false)));
          out.writeInt(LOG_FILE_VERSION);
          for (Entry<T> e : list) {
             e.write(out);
          }
-         logger.info("First Index = {} ({})", firstIndex, entries.get(0).index);
+         out.flush();
+         commitIndex = lastIndex;
+         logger.info("Log First Index = {}, Last Index = {}", firstIndex, lastIndex);
       }
    }
 
@@ -427,6 +439,10 @@ public class Log<T extends StateMachine<T>> {
                   while (true) {
                      final Entry<T> e = new Entry<T>(in, stateMachine);
                      if (last != null) {
+                        if (e.index != last.index + 1) {
+                           logger.error("Log File {} is inconsistent. {} followed by {}", file, last, e);
+                        }
+
                         assert e.term >= last.term;
                         assert e.index == last.index + 1;
                      }

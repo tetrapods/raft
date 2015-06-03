@@ -56,6 +56,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       private long     nextIndex = 1;
       private long     matchIndex;
       private boolean  appendPending;
+      private boolean  fresh     = true;
       private File     snapshotTransfer;
 
       public Peer(int peerId) {
@@ -355,14 +356,12 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             assert (peer.nextIndex > 0);
          }
          // for a fresh peer we'll start with an empty list of entries so we can learn what index the node is already on in it's log
-         final boolean fresh = peer.lastAppendMillis == 0;
-
          // fetch entries from log to send to the peer
-         final Entry<T>[] entries = (!fresh && peer.snapshotTransfer == null) ? log.getEntries(peer.nextIndex,
+         final Entry<T>[] entries = (!peer.fresh && peer.snapshotTransfer == null) ? log.getEntries(peer.nextIndex,
                config.getMaxEntriesPerRequest()) : null;
 
          // if this peer needs entries we no longer have, then send them a snapshot
-         if (!fresh && peer.nextIndex < log.getFirstIndex() && entries == null) {
+         if (!peer.fresh && peer.nextIndex < log.getFirstIndex() && entries == null) {
             installSnapshot(peer);
          } else {
             long prevLogIndex = peer.nextIndex - 1;
@@ -379,17 +378,20 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
                            peer.appendPending = false;
                            if (role == Role.Leader) {
                               if (!stepDown(term)) {
+                                 peer.fresh = false;
                                  if (success) {
                                     if (entries != null) {
                                        peer.matchIndex = entries[entries.length - 1].index;
                                        peer.nextIndex = peer.matchIndex + 1;
                                        assert peer.nextIndex != 0;
+                                    } else {
+                                       peer.nextIndex = lastLogIndex;
                                     }
                                     updatePeer(peer);
                                  } else {
                                     //assert peer.nextIndex > 1 : "peer.nextIndex = " + peer.nextIndex;
                                     if (peer.nextIndex > lastLogIndex) {
-                                       peer.nextIndex = Math.max(lastLogIndex, 1);
+                                       peer.nextIndex = Math.max(lastLogIndex + 1, 1);
                                     } else if (peer.nextIndex > 1) {
                                        peer.nextIndex--;
                                     }
@@ -479,7 +481,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
                         } else {
                            logger.info("InstallSnapshot: done-{}", peer.nextIndex);
                            peer.snapshotTransfer = null;
-                           peer.nextIndex = snapshotIndex;
+                           peer.nextIndex = snapshotIndex + 1;
                         }
                      } else {
                         logger.error("{} Failed to install snapshot on {}", this, peer);

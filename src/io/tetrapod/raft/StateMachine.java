@@ -16,7 +16,7 @@ public abstract class StateMachine<T extends StateMachine<T>> {
 
    public static final Logger logger                  = LoggerFactory.getLogger(StateMachine.class);
 
-   public static final int    SNAPSHOT_FILE_VERSION   = 1;
+   public static final int    SNAPSHOT_FILE_VERSION   = 2;
 
    public static final int    COMMAND_ID_ADD_PEER     = -1;
    public static final int    COMMAND_ID_DEL_PEER     = -2;
@@ -53,6 +53,8 @@ public abstract class StateMachine<T extends StateMachine<T>> {
    // State
    private long                                 index;
    private long                                 term;
+   private long                                 checksum         = 0;
+   private long                                 count            = 0;
    private long                                 prevIndex;
    private long                                 prevTerm;
    private final Map<Integer, Peer>             peers            = new HashMap<>();
@@ -135,6 +137,10 @@ public abstract class StateMachine<T extends StateMachine<T>> {
          out.writeLong(term);
          out.writeLong(index);
          out.writeLong(prevTerm);
+         if (SNAPSHOT_FILE_VERSION >= 2) {
+            out.writeLong(count);
+            out.writeLong(checksum);
+         }
          out.writeInt(peers.size());
          for (Peer peer : peers.values()) {
             peer.write(out);
@@ -151,6 +157,11 @@ public abstract class StateMachine<T extends StateMachine<T>> {
          index = in.readLong();
          prevIndex = index - 1;
          prevTerm = in.readLong();
+         if (version >= 2) {
+            count = in.readLong();
+            checksum = in.readLong();
+         }
+         peers.clear();
          final int numPeers = in.readInt();
          for (int i = 0; i < numPeers; i++) {
             Peer p = new Peer(in);
@@ -242,6 +253,15 @@ public abstract class StateMachine<T extends StateMachine<T>> {
 
    public Collection<Peer> getPeers() {
       return peers.values();
+   }
+
+   protected void applyHealthCheck(long val) {
+      checksum ^= (val * index * ++count);
+      //logger.info("CHECKSUM {} = {}:{}", val, checksum, count);
+   }
+
+   public long getChecksum() {
+      return checksum;
    }
 
 }

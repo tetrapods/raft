@@ -87,6 +87,8 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
 
    @Override
    public void loadState(DataInputStream in) throws IOException {
+      items.clear();
+      copyOnWrite.clear();
       int numItems = in.readInt();
       while (numItems-- > 0) {
          StorageItem item = new StorageItem(in);
