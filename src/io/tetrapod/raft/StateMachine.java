@@ -81,6 +81,11 @@ public abstract class StateMachine<T extends StateMachine<T>> {
          out.writeUTF(host);
          out.writeInt(port);
       }
+
+      @Override
+      public String toString() {
+         return String.format("Peer-%d{%s:%d}", peerId, host, port);
+      }
    }
 
    public StateMachine() {
