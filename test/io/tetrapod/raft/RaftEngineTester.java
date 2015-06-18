@@ -46,7 +46,6 @@ public class RaftEngineTester implements RaftRPC<TestStateMachine> {
    }
 
    private Map<Integer, RaftEngine<TestStateMachine>> rafts  = new HashMap<>();
-   private RaftEngine<TestStateMachine>               dead   = null;
    private SecureRandom                               random = new SecureRandom();
 
    @Test
@@ -130,7 +129,7 @@ public class RaftEngineTester implements RaftRPC<TestStateMachine> {
 
    }
 
-   private void checkConsistency() {
+   void checkConsistency() {
 
       for (RaftEngine<TestStateMachine> r1 : rafts.values()) {
          for (RaftEngine<TestStateMachine> r2 : rafts.values()) {

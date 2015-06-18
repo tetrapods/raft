@@ -384,7 +384,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
                                        peer.nextIndex = peer.matchIndex + 1;
                                        assert peer.nextIndex != 0;
                                     } else {
-                                       peer.nextIndex = Math.max(lastLogIndex, 1);
+                                       peer.nextIndex = Math.max(lastLogIndex + 1, 1);
                                     }
                                     updatePeer(peer);
                                  } else {
