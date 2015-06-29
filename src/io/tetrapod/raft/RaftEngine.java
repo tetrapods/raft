@@ -183,7 +183,6 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       if (!log.isRunning() && role != Role.Leaving) {
          role = Role.Failed;
       }
-
       switch (role) {
          case Joining:
             if (role == Role.Joining) {
@@ -241,6 +240,8 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    }
 
    private synchronized void callElection() {
+      log.updateStateMachine();
+
       final int votesNeeded = (1 + peers.size()) / 2;
       final Value<Integer> votes = new Value<>(1);
       role = Role.Candidate;

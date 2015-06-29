@@ -326,9 +326,9 @@ public class Log<T extends StateMachine<T>> {
    }
 
    /**
-    * Applies log entries to our state machine until it is at the given index
+    * Applies committed log entries to our state machine until it is at the given index
     */
-   private synchronized void updateStateMachine() {
+   protected synchronized void updateStateMachine() {
       try {
          synchronized (stateMachine) {
             while (commitIndex > stateMachine.getIndex()) {
