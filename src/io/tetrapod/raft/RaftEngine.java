@@ -89,7 +89,9 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    public synchronized void bootstrap(String host, int port) {
       peers.clear();
       currentTerm++;
-      start(1);
+      if (myPeerId == 0) {
+         start(1);
+      } 
       becomeLeader();
       executeCommand(new AddPeerCommand<T>(host, port, true), null);
    }
