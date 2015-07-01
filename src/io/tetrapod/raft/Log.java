@@ -295,6 +295,7 @@ public class Log<T extends StateMachine<T>> {
             }
          } catch (Exception t) {
             logger.error(t.getMessage(), t);
+            stop();
          }
       }
    }

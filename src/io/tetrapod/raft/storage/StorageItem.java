@@ -24,7 +24,9 @@ public class StorageItem {
    public StorageItem(StorageItem copy) {
       this.key = copy.key;
       this.version = copy.version;
-      this.data = Arrays.copyOf(copy.data, copy.data.length);
+      if (copy.data != null) {
+         this.data = Arrays.copyOf(copy.data, copy.data.length);
+      }
    }
 
    public StorageItem(DataInputStream in) throws IOException {
