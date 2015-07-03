@@ -375,6 +375,9 @@ public class Log<T extends StateMachine<T>> {
       do {
          entry = getEntryFromDisk(stateMachine.getIndex() + 1);
          if (entry != null) {
+            //if (!(entry.command instanceof HealthCheckCommand)) {
+            //   logger.info("REPLAY: {} {}", entry, entry.command);
+            //}
             stateMachine.apply(entry);
          }
       } while (entry != null);
@@ -433,6 +436,7 @@ public class Log<T extends StateMachine<T>> {
          if (list == null) {
             list = new ArrayList<>();
             if (file.exists()) {
+               logger.info("Loading Log File {}", file);
                try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(file)))) {
                   final int version = in.readInt();
                   assert (version <= LOG_FILE_VERSION);
@@ -484,21 +488,25 @@ public class Log<T extends StateMachine<T>> {
          firstTerm = first.term;
          logger.info("Compacted log new size = {}, firstIndex = {}", entries.size(), firstIndex);
       }
+   }
 
+   private void archiveOldLogFiles() {
       if (config.getDeleteOldFiles()) {
-         long index = commitIndex - (config.getEntriesPerSnapshot() * 2);
+         long index = commitIndex - (config.getEntriesPerSnapshot() * 4);
          while (index > 0) {
             File file = getFile(index);
             if (file.exists()) {
-               logger.info("Deleting old log file {}", file);
-               file.delete();
+               logger.info("Archiving old log file {}", file);
+               File newFile = new File("archived", file.getName());
+               newFile.mkdirs();
+               file.renameTo(newFile);
+               //file.delete();
             } else {
                break;
             }
             index -= config.getEntriesPerFile();
          }
       }
-
    }
 
    /**
@@ -511,8 +519,10 @@ public class Log<T extends StateMachine<T>> {
          stateMachine.writeSnapshot(openFile, getTerm(stateMachine.getPrevIndex()));
          File file = new File(getLogDirectory(), "raft.snapshot");
          if (file.exists()) {
-            file.renameTo(new File(getLogDirectory(), "raft.old.snapshot"));
+            file.renameTo(new File(getLogDirectory(), String.format("raft.%016X.snapshot", stateMachine.getIndex())));
          }
+         archiveOldLogFiles();
+
          openFile.renameTo(file);
          return stateMachine.getIndex();
       }

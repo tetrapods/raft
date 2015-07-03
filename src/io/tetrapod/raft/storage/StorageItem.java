@@ -39,8 +39,10 @@ public class StorageItem {
 
    public void write(DataOutputStream out) throws IOException {
       out.writeUTF(key);
-      out.writeInt(data.length);
-      out.write(data);
+      out.writeInt(data == null ? 0 : data.length);
+      if (data != null) {
+         out.write(data);
+      }
       out.writeInt(version);
       out.writeLong(lockExpiry);
    }
