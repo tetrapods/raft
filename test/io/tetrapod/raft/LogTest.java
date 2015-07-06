@@ -26,6 +26,7 @@ public class LogTest {
          file.delete();
       }
       logDir.delete();
+      logger.info("Deleting Test Files {}", logDir);
    }
 
    @Test
@@ -110,6 +111,40 @@ public class LogTest {
       //      Assert.assertEquals(12, log.getFirstIndex());
       //      Assert.assertEquals(21, log.getLastIndex());
 
+   }
+
+   @Test
+   public void testRepairConflicts() {
+      // TODO
+   }
+
+   @Test
+   public void testSnapshots() throws IOException {
+      deleteTestDir();
+      makeTestDir();
+
+      TestStateMachine state = new TestStateMachine();
+      Config config = new Config().setLogDir(logDir);
+      config.setEntriesPerFile(16);
+      config.setEntriesPerSnapshot(32);
+      Log<TestStateMachine> log = new Log<>(config, state);
+
+      // write a bunch of entries
+      for (int i = 0; i < 100; i++) {
+         log.append(1, state.makeNewCommand());
+      }
+
+      // wait for commits to write 
+      log.setCommitIndex(log.getLastIndex());
+      while (log.getStateMachine().getIndex() < log.getLastIndex()) {
+         sleep(100);
+      }
+      long checksum = state.getCheckSum();
+      log.stop();
+
+      state = new TestStateMachine();
+      log = new Log<>(config, state);
+      Assert.assertEquals(checksum, state.getCheckSum());
    }
 
    private void sleep(int millis) {
