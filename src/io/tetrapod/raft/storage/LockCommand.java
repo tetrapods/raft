@@ -42,8 +42,13 @@ public class LockCommand<T extends StorageStateMachine<T>> implements Command<T>
       return COMMAND_ID;
    }
 
-   public boolean wasAcquired() { 
+   public boolean wasAcquired() {
       return acquired;
+   }
+
+   @Override
+   public String toString() {
+      return "LockCommand(" + key + ", " + leaseForMillis + ", " + acquired + ")";
    }
 
 }
