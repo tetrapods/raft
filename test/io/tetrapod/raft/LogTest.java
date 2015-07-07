@@ -92,25 +92,6 @@ public class LogTest {
       }
       Assert.assertEquals(1, log.getFirstIndex());
       Assert.assertEquals(21, log.getLastIndex());
-
-      //      File snapFile = new File(logDir, "raft.snapshot");
-      //      state.writeSnapshot(snapFile);
-      //      log.compact(state.getIndex(), 0);
-      //      Assert.assertEquals(12, log.getFirstIndex());
-      //      Assert.assertEquals(21, log.getLastIndex());
-      //      log.setCommitIndex(log.getLastIndex());
-      //      log.stop();
-      //      sleep(1000);
-      //
-      //      state = new TestStateMachine();
-      //      state.readSnapshot(snapFile);      
-      //      Assert.assertEquals(checksum, state.getCheckSum());
-      //      Assert.assertEquals(state.getIndex(), 11);
-      //      log = new Log<>(logDir, state);
-      //
-      //      Assert.assertEquals(12, log.getFirstIndex());
-      //      Assert.assertEquals(21, log.getLastIndex());
-
    }
 
    @Test
@@ -142,9 +123,13 @@ public class LogTest {
       long checksum = state.getCheckSum();
       log.stop();
 
+      // load new log from snapshot & files
       state = new TestStateMachine();
       log = new Log<>(config, state);
+
       Assert.assertEquals(checksum, state.getCheckSum());
+      Assert.assertEquals(96, log.getFirstIndex());
+      Assert.assertEquals(100, log.getLastIndex());
    }
 
    private void sleep(int millis) {
