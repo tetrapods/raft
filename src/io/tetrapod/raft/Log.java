@@ -375,9 +375,6 @@ public class Log<T extends StateMachine<T>> {
       do {
          entry = getEntryFromDisk(stateMachine.getIndex() + 1);
          if (entry != null) {
-            //if (!(entry.command instanceof HealthCheckCommand)) {
-            //   logger.info("REPLAY: {} {}", entry, entry.command);
-            //}
             stateMachine.apply(entry);
          }
       } while (entry != null);
@@ -401,6 +398,9 @@ public class Log<T extends StateMachine<T>> {
          out.flush();
          commitIndex = lastIndex;
          logger.info("Log First Index = {}, Last Index = {}", firstIndex, lastIndex);
+      }
+      synchronized (entryFileCache) {
+         entryFileCache.clear();
       }
    }
 
@@ -426,13 +426,15 @@ public class Log<T extends StateMachine<T>> {
                return list.get(i);
             }
          }
+      } else {
+         logger.info("Could not find file {}", file);
       }
       return null;
    }
 
    public List<Entry<T>> loadLogFile(File file) throws IOException {
       synchronized (entryFileCache) {
-         List<Entry<T>> list = entryFileCache.get(file.getName());
+         List<Entry<T>> list = entryFileCache.get(file.getCanonicalPath());
          if (list == null) {
             list = new ArrayList<>();
             if (file.exists()) {
@@ -458,7 +460,7 @@ public class Log<T extends StateMachine<T>> {
                   logger.debug("Read {} from {}", list.size(), file);
                }
             }
-            entryFileCache.put(file.getName(), list);
+            entryFileCache.put(file.getCanonicalPath(), list);
          }
          return list;
       }
