@@ -91,7 +91,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       currentTerm++;
       if (myPeerId == 0) {
          start(1);
-      } 
+      }
       becomeLeader();
       executeCommand(new AddPeerCommand<T>(host, port, true), null);
    }
@@ -196,7 +196,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             break;
          case Follower:
          case Candidate:
-            if (System.currentTimeMillis() > electionTimeout) {
+            if (System.currentTimeMillis() > electionTimeout && log.getLastIndex() > 0) {
                callElection();
             }
             break;
