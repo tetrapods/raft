@@ -26,7 +26,7 @@ public class RemoveItemCommand<T extends StorageStateMachine<T>> implements Comm
    }
 
    @Override
-   public void read(DataInputStream in) throws IOException {
+   public void read(DataInputStream in, int fileVersion) throws IOException {
       key = in.readUTF();
    }
 

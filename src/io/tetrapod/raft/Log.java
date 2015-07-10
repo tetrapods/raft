@@ -20,7 +20,7 @@ public class Log<T extends StateMachine<T>> {
 
    public static final Logger   logger           = LoggerFactory.getLogger(Log.class);
 
-   public static final int      LOG_FILE_VERSION = 1;
+   public static final int      LOG_FILE_VERSION = 2;
 
    /**
     * The log's in-memory buffer of log entries
@@ -444,7 +444,7 @@ public class Log<T extends StateMachine<T>> {
                   assert (version <= LOG_FILE_VERSION);
                   Entry<T> last = null;
                   while (true) {
-                     final Entry<T> e = new Entry<T>(in, stateMachine);
+                     final Entry<T> e = new Entry<T>(in, version, stateMachine);
                      if (last != null) {
                         if (e.index != last.index + 1) {
                            logger.error("Log File {} is inconsistent. {} followed by {}", file, last, e);

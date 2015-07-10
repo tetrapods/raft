@@ -38,7 +38,7 @@ public class PutItemCommand<T extends StorageStateMachine<T>> implements Command
    }
 
    @Override
-   public void read(DataInputStream in) throws IOException {
+   public void read(DataInputStream in, int fileVersion) throws IOException {
       key = in.readUTF();
       data = new byte[in.readInt()];
       in.readFully(data);

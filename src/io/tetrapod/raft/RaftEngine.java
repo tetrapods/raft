@@ -15,7 +15,6 @@ import org.slf4j.*;
 /**
  * Major TODOS:
  * <ul>
- * <li>Reference StorageStateMachine w/ CopyOnWrite
  * <li>Smooth Cluster membership changes</li>
  * <li>More Unit Tests & Robust Simulator
  * <li>Idempotent client requests

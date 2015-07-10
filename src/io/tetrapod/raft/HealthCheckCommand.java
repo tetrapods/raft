@@ -24,7 +24,7 @@ public class HealthCheckCommand<T extends StateMachine<T>> implements Command<T>
    public void write(DataOutputStream out) throws IOException {     out.writeLong(val);}
 
    @Override
-   public void read(DataInputStream in) throws IOException { this.val = in.readLong();}
+   public void read(DataInputStream in, int fileVersion) throws IOException { this.val = in.readLong();}
 
    @Override
    public int getCommandType() {

@@ -29,7 +29,7 @@ public class Entry<T extends StateMachine<T>> {
    /**
     * Read this command to from an input stream
     */
-   public Entry(DataInputStream in, T state) throws IOException {
+   public Entry(DataInputStream in, int fileVersion, T state) throws IOException {
       term = in.readLong();
       index = in.readLong();
       final int typeId = in.readInt();
@@ -37,7 +37,7 @@ public class Entry<T extends StateMachine<T>> {
       if (command == null) {
          throw new IOException("Could not create command type " + typeId);
       }
-      command.read(in);
+      command.read(in, fileVersion);
    }
 
    /**

@@ -36,7 +36,7 @@ public class IncrementCommand<T extends StorageStateMachine<T>> implements Comma
    }
 
    @Override
-   public void read(DataInputStream in) throws IOException {
+   public void read(DataInputStream in, int fileVersion) throws IOException {
       key = in.readUTF();
       amount = in.readLong();
       result = in.readLong();

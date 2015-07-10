@@ -16,7 +16,7 @@ public abstract class StateMachine<T extends StateMachine<T>> {
 
    public static final Logger logger                  = LoggerFactory.getLogger(StateMachine.class);
 
-   public static final int    SNAPSHOT_FILE_VERSION   = 2;
+   public static final int    SNAPSHOT_FILE_VERSION   = 3;
 
    public static final int    COMMAND_ID_ADD_PEER     = -1;
    public static final int    COMMAND_ID_DEL_PEER     = -2;
@@ -134,7 +134,7 @@ public abstract class StateMachine<T extends StateMachine<T>> {
 
    public abstract void saveState(DataOutputStream out) throws IOException;
 
-   public abstract void loadState(DataInputStream in) throws IOException;
+   public abstract void loadState(DataInputStream in, int snapshotVersion) throws IOException;
 
    public void writeSnapshot(File file, long prevTerm) throws IOException {
       try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(new GZIPOutputStream(new FileOutputStream(file))))) {
@@ -172,7 +172,7 @@ public abstract class StateMachine<T extends StateMachine<T>> {
             Peer p = new Peer(in);
             peers.put(p.peerId, p);
          }
-         loadState(in);
+         loadState(in, version);
       }
    }
 

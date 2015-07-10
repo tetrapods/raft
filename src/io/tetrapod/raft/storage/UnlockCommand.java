@@ -8,6 +8,7 @@ public class UnlockCommand<T extends StorageStateMachine<T>> implements Command<
    public static final int COMMAND_ID = 5;
 
    private String          key;
+   private String          uuid;
 
    public UnlockCommand() {}
 
@@ -17,17 +18,26 @@ public class UnlockCommand<T extends StorageStateMachine<T>> implements Command<
 
    @Override
    public void applyTo(T state) {
-      state.unlock(key);
+      state.unlock(key, uuid);
    }
 
    @Override
    public void write(DataOutputStream out) throws IOException {
       out.writeUTF(key);
+      out.writeBoolean(uuid != null);
+      if (uuid != null) {
+         out.writeUTF(uuid);
+      }
    }
 
    @Override
-   public void read(DataInputStream in) throws IOException {
+   public void read(DataInputStream in, int fileVersion) throws IOException {
       key = in.readUTF();
+      if (fileVersion > 1) {
+         if (in.readBoolean()) {
+            uuid = in.readUTF();
+         }
+      }
    }
 
    @Override

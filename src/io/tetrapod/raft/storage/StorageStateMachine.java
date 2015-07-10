@@ -14,9 +14,11 @@ import java.util.*;
  */
 public class StorageStateMachine<T extends StorageStateMachine<T>> extends StateMachine<T> {
 
-   protected final Map<String, StorageItem>            items       = new HashMap<>();
+   public final static int                             STORAGE_STATE_FILE_VERSION = 1;
 
-   protected final Map<Long, Map<String, StorageItem>> copyOnWrite = new HashMap<>();
+   protected final Map<String, StorageItem>            items                      = new HashMap<>();
+
+   protected final Map<Long, Map<String, StorageItem>> copyOnWrite                = new HashMap<>();
 
    public StorageStateMachine() {
       super();
@@ -56,6 +58,8 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
    public void saveState(DataOutputStream out) throws IOException {
       final Map<String, StorageItem> modified = new HashMap<>();
 
+      out.write(STORAGE_STATE_FILE_VERSION);
+      
       long writeIndex;
       List<StorageItem> list;
 
@@ -86,12 +90,13 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
    }
 
    @Override
-   public void loadState(DataInputStream in) throws IOException {
+   public void loadState(DataInputStream in, int snapshotVersion) throws IOException {
+      int fileVersion = snapshotVersion >= 3 ? in.readInt() : 0;
       items.clear();
       copyOnWrite.clear();
       int numItems = in.readInt();
       while (numItems-- > 0) {
-         StorageItem item = new StorageItem(in);
+         StorageItem item = new StorageItem(in, fileVersion);
          items.put(item.key, item);
       }
    }
@@ -118,13 +123,6 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
 
    public StorageItem getItem(String key) {
       return items.get(key);
-   }
-
-   @Override
-   public String toString() {
-      // HACK FOR TESTING
-      StorageItem item = items.get("foo");
-      return item == null ? "<null>" : new String(item.getData());
    }
 
    protected void putItem(String key, byte[] data) {
@@ -155,7 +153,7 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
       }
    }
 
-   public boolean lock(String key, long leaseForMillis) {
+   public boolean lock(String key, String uuid, long leaseForMillis) {
       final long curTime = System.currentTimeMillis();
       StorageItem item = items.get(key);
       if (item != null) {
@@ -164,14 +162,16 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
          item = new StorageItem(key, null);
          items.put(key, item);
       }
-      return item.lock(leaseForMillis, curTime);
+      return item.lock(leaseForMillis, curTime, uuid);
    }
 
-   public void unlock(String key) {
+   public void unlock(String key, String uuid) {
       final StorageItem item = items.get(key);
       if (item != null) {
-         modify(item);
-         item.unlock();
+         if (uuid == null || item.isOwned(uuid)) {
+            modify(item);
+            item.unlock();
+         }
       }
    }
 

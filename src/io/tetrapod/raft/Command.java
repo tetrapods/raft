@@ -20,7 +20,7 @@ public interface Command<T extends StateMachine<T>> {
    /**
     * Read this command to from an input stream
     */
-   public void read(DataInputStream in) throws IOException;
+   public void read(DataInputStream in, int fileVersion) throws IOException;
 
    /**
     * Get a unique and stable integer id for this command type.

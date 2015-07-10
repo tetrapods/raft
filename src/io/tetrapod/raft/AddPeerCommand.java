@@ -40,7 +40,7 @@ public class AddPeerCommand<T extends StateMachine<T>> implements Command<T> {
    }
 
    @Override
-   public void read(DataInputStream in) throws IOException {
+   public void read(DataInputStream in, int fileVersion) throws IOException {
       peerId = in.readInt();
       host = in.readUTF();
       port = in.readInt();
