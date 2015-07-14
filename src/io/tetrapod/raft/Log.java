@@ -1,6 +1,7 @@
 package io.tetrapod.raft;
 
 import java.io.*;
+import java.nio.channels.FileLock;
 import java.util.*;
 
 import org.slf4j.*;
@@ -12,7 +13,7 @@ import org.slf4j.*;
  * 
  * <ul>
  * <li>TODO: Add a proper file lock so we can ensure only one raft process to a raft-dir</li>
- * <li>TODO: Make constants configurable
+ * <li>TODO: Make config constants configurable
  * </ul>
  * 
  */
@@ -56,10 +57,19 @@ public class Log<T extends StateMachine<T>> {
       this.config = config;
       this.config.getLogDir().mkdirs();
 
+      // obtain the raft logs lock file
+      obtainFileLock();
+
+      // restore our state to the last snapshot
       loadSnapshot();
+
+      // load all subsequent entries in our log
       replayLogs();
+
+      // apply entries to our state machine
       updateStateMachine();
 
+      // fire up our thread for writing log files 
       final Thread t = new Thread(new Runnable() {
          public void run() {
             writeLoop();
@@ -151,6 +161,9 @@ public class Log<T extends StateMachine<T>> {
       return null; // we don't have it!
    }
 
+   /**
+    * Fetch entries from fromIndex, up to maxEntries. Returns all or none.
+    */
    public Entry<T>[] getEntries(long fromIndex, int maxEntries) {
       if (fromIndex > lastIndex) {
          return null;
@@ -167,6 +180,9 @@ public class Log<T extends StateMachine<T>> {
       return list;
    }
 
+   /**
+    * Get the term for an entry in our log
+    */
    public long getTerm(long index) {
       if (index == 0) {
          return 0;
@@ -187,20 +203,22 @@ public class Log<T extends StateMachine<T>> {
       return e.term;
    }
 
+   /**
+    * Deletes all uncommitted entries after a certain index
+    */
    private synchronized void wipeConflictedEntries(long index) {
+      assert index > commitIndex;
+      assert index > snapshotIndex;
+
       // we have a conflict -- we need to throw away all entries from our log from this point on
       while (lastIndex >= index) {
          entries.remove((int) (lastIndex-- - firstIndex));
       }
-      //commitIndex = Math.min(commitIndex, lastIndex);
       if (lastIndex > 0) {
          lastTerm = getTerm(lastIndex);
       } else {
          lastTerm = 0;
       }
-
-      assert index > commitIndex;
-      assert index > snapshotIndex;
    }
 
    public List<Entry<T>> getEntries() {
@@ -300,12 +318,55 @@ public class Log<T extends StateMachine<T>> {
       }
    }
 
+   private void obtainFileLock() throws IOException {
+      File lockFile = new File(getLogDirectory(), "lock");
+      lockFile.deleteOnExit();
+      @SuppressWarnings("resource")
+      FileOutputStream stream = new FileOutputStream(lockFile);
+      FileLock lock = stream.getChannel().tryLock();
+      if (lock == null || !lock.isValid()) {
+         throw new IOException("File Lock Held by another proces: " + lockFile);
+      }
+   }
+
    /**
     * Get the canonical file name for this index
+    * 
+    * @throws IOException
     */
-   private File getFile(long index) {
+   private File getFile(long index, boolean forReading) throws IOException {
       long firstIndexInFile = (index / config.getEntriesPerFile()) * config.getEntriesPerFile();
-      return new File(getLogDirectory(), String.format("%016X.log", firstIndexInFile));
+      File file = new File(getLogDirectory(), String.format("%016X.log", firstIndexInFile));
+      if (forReading) {
+         // if the config's entriesPerFile has changed, we need to scan files to find the right one
+
+         // if the file is cached, we can do a quick check
+         synchronized (entryFileCache) {
+            final List<Entry<T>> list = entryFileCache.get(file.getCanonicalPath());
+            if (list != null && !list.isEmpty()) {
+               if (list.get(0).index <= index && list.get(list.size() - 1).index >= index) {
+                  return file;
+               }
+            }
+         }
+
+         File bestFile = null;
+         long bestIndex = 0;
+         for (File f : getLogDirectory().listFiles()) {
+            if (f.getName().matches("[A-F0-9]{16}\\.log")) {
+               long i = Long.parseLong(f.getName().replace(".log", ""), 16);
+               if (i <= index && i > bestIndex) {
+                  bestFile = f;
+                  bestIndex = i;
+               }
+            }
+         }
+         if (bestFile != null) {
+            //logger.info("Best guess for file containing {} is {}", index, bestFile);
+            file = bestFile;
+         }
+      }
+      return file;
    }
 
    private synchronized void ensureCorrectLogFile(long index) throws IOException {
@@ -316,7 +377,7 @@ public class Log<T extends StateMachine<T>> {
          }
       }
       if (out == null) {
-         File file = getFile(index);
+         File file = getFile(index, false);
          if (file.exists()) {
             file.renameTo(new File(getLogDirectory(), "old." + file.getName()));
          }
@@ -380,7 +441,7 @@ public class Log<T extends StateMachine<T>> {
       } while (entry != null);
 
       // get the most recent file of entries
-      final List<Entry<T>> list = loadLogFile(getFile(stateMachine.getIndex()));
+      final List<Entry<T>> list = loadLogFile(getFile(stateMachine.getIndex(), true));
       if (list != null && list.size() > 0) {
          assert (entries.size() == 0);
          entries.addAll(list);
@@ -390,7 +451,7 @@ public class Log<T extends StateMachine<T>> {
          lastTerm = entries.get(entries.size() - 1).term;
          // TODO: rename existing file in case of failure
          // re-write out the last file
-         out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(getFile(firstIndex), false)));
+         out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(getFile(firstIndex, true), false)));
          out.writeInt(LOG_FILE_VERSION);
          for (Entry<T> e : list) {
             e.write(out);
@@ -416,7 +477,7 @@ public class Log<T extends StateMachine<T>> {
                                                             };
 
    private Entry<T> getEntryFromDisk(long index) throws IOException {
-      File file = getFile(index);
+      File file = getFile(index, true);
       if (file.exists()) {
          List<Entry<T>> list = loadLogFile(file);
          if (list != null && list.size() > 0) {
@@ -492,11 +553,11 @@ public class Log<T extends StateMachine<T>> {
       }
    }
 
-   private void archiveOldLogFiles() {
+   private void archiveOldLogFiles() throws IOException {
       if (config.getDeleteOldFiles()) {
          long index = commitIndex - (config.getEntriesPerSnapshot() * 4);
          while (index > 0) {
-            File file = getFile(index);
+            File file = getFile(index, true);
             if (file.exists()) {
                logger.info("Archiving old log file {}", file);
                File newFile = new File("archived", file.getName());
