@@ -269,4 +269,9 @@ public abstract class StateMachine<T extends StateMachine<T>> {
       return checksum;
    }
 
+   @Override
+   public String toString() {
+      return getClass().getSimpleName();
+   }
+   
 }

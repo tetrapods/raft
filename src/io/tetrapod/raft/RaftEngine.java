@@ -85,21 +85,21 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       this.currentTerm = log.getLastTerm();
    }
 
-   public synchronized void bootstrap(String host, int port) {
-      peers.clear();
-      currentTerm++;
-      if (myPeerId == 0) {
-         start(1);
-      }
-      becomeLeader();
-      executeCommand(new AddPeerCommand<T>(host, port, true), null);
-   }
+   //   public synchronized void bootstrap(String host, int port) {
+   //      peers.clear();
+   //      currentTerm++;
+   //      if (myPeerId == 0) {
+   //         start(1);
+   //      }
+   //      becomeLeader();
+   //      executeCommand(new AddPeerCommand<T>(host, port, true), null);
+   //   }
 
    public synchronized void start(int peerId) {
       setPeerId(peerId);
       this.role = Role.Follower;
       rescheduleElection();
-      this.electionTimeout += 10000; // initial grace period on startup
+      this.electionTimeout += 2000; // add an initial grace period on startup
       launchPeriodicTasksThread();
    }
 
@@ -587,22 +587,22 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
    @Override
    public void onLogEntryApplied(Entry<T> entry) {
-      final Command<T> command = entry.getCommand();
-      if (command.getCommandType() == StateMachine.COMMAND_ID_ADD_PEER) {
-         final AddPeerCommand<T> addPeerCommand = ((AddPeerCommand<T>) command);
-         if (addPeerCommand.bootstrap) {
-            logger.info(" ********************** BOOTSTRAP **********************", addPeerCommand.peerId);
-            peers.clear();
-         }
-         if (addPeerCommand.peerId != this.myPeerId) {
-            logger.info(" ********************** AddPeer #{} ********************** ", addPeerCommand.peerId);
-            peers.put(addPeerCommand.peerId, new Peer(addPeerCommand.peerId));
-         }
-      } else if (command.getCommandType() == StateMachine.COMMAND_ID_DEL_PEER) {
-         final DelPeerCommand<T> delPeerCommand = ((DelPeerCommand<T>) command);
-         logger.info(" ********************** DelPeer #{} ********************** ", delPeerCommand.peerId);
-         peers.remove(delPeerCommand.peerId);
-      }
+      //      final Command<T> command = entry.getCommand();
+      //      if (command.getCommandType() == StateMachine.COMMAND_ID_ADD_PEER) {
+      //         final AddPeerCommand<T> addPeerCommand = ((AddPeerCommand<T>) command);
+      //         if (addPeerCommand.bootstrap) {
+      //            logger.info(" ********************** BOOTSTRAP **********************", addPeerCommand.peerId);
+      //            peers.clear();
+      //         }
+      //         if (addPeerCommand.peerId != this.myPeerId) {
+      //            logger.info(" ********************** AddPeer #{} ********************** ", addPeerCommand.peerId);
+      //            peers.put(addPeerCommand.peerId, new Peer(addPeerCommand.peerId));
+      //         }
+      //      } else if (command.getCommandType() == StateMachine.COMMAND_ID_DEL_PEER) {
+      //         final DelPeerCommand<T> delPeerCommand = ((DelPeerCommand<T>) command);
+      //         logger.info(" ********************** DelPeer #{} ********************** ", delPeerCommand.peerId);
+      //         peers.remove(delPeerCommand.peerId);
+      //      }
    }
 
    public Collection<Peer> getPeers() {
