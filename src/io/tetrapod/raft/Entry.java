@@ -46,6 +46,7 @@ public class Entry<T extends StateMachine<T>> {
    public void write(DataOutputStream out) throws IOException {
       out.writeLong(term);
       out.writeLong(index);
+      assert command.getCommandType() != 0;
       out.writeInt(command.getCommandType());
       command.write(out);
    }

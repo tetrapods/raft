@@ -58,8 +58,8 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
    public void saveState(DataOutputStream out) throws IOException {
       final Map<String, StorageItem> modified = new HashMap<>();
 
-      out.write(STORAGE_STATE_FILE_VERSION);
-      
+      out.writeInt(STORAGE_STATE_FILE_VERSION);
+
       long writeIndex;
       List<StorageItem> list;
 
@@ -91,13 +91,15 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
 
    @Override
    public void loadState(DataInputStream in, int snapshotVersion) throws IOException {
-      int fileVersion = snapshotVersion >= 3 ? in.readInt() : 0;
       items.clear();
       copyOnWrite.clear();
+
+      int fileVersion = snapshotVersion >= 3 ? in.readInt() : 0;
       int numItems = in.readInt();
       while (numItems-- > 0) {
          StorageItem item = new StorageItem(in, fileVersion);
          items.put(item.key, item);
+         //logger.info("LOADED STORAGE ITEM {} {}", numItems, item.key);
       }
    }
 
