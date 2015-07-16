@@ -575,10 +575,10 @@ public class Log<T extends StateMachine<T>> {
    /**
     * Currently is a pause-the-world snapshot
     */
-   private long saveSnapshot() throws IOException {
+   public long saveSnapshot() throws IOException {
       // currently pauses the world to save a snapshot
-      File openFile = new File(getLogDirectory(), "raft.open.snapshot");
       synchronized (stateMachine) {
+         File openFile = new File(getLogDirectory(), "raft.open.snapshot");
          stateMachine.writeSnapshot(openFile, getTerm(stateMachine.getPrevIndex()));
          File file = new File(getLogDirectory(), "raft.snapshot");
          if (file.exists()) {

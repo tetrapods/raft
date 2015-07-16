@@ -94,7 +94,10 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
       items.clear();
       copyOnWrite.clear();
 
-      int fileVersion = snapshotVersion >= 3 ? in.readInt() : 0;
+      final int fileVersion = snapshotVersion >= 3 ? in.readInt() : 0;
+      if (fileVersion > STORAGE_STATE_FILE_VERSION) {
+         throw new IOException("Incompatible Snapshot Format: " + fileVersion + " > " + STORAGE_STATE_FILE_VERSION);
+      }
       int numItems = in.readInt();
       while (numItems-- > 0) {
          StorageItem item = new StorageItem(in, fileVersion);
