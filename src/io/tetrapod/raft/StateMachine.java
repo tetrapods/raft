@@ -16,7 +16,7 @@ public abstract class StateMachine<T extends StateMachine<T>> {
 
    public static final Logger logger                  = LoggerFactory.getLogger(StateMachine.class);
 
-   public static final int    SNAPSHOT_FILE_VERSION   = 4;
+   public static final int    SNAPSHOT_FILE_VERSION   = 1;
 
    public static final int    COMMAND_ID_ADD_PEER     = -1;
    public static final int    COMMAND_ID_DEL_PEER     = -2;
@@ -134,7 +134,7 @@ public abstract class StateMachine<T extends StateMachine<T>> {
 
    public abstract void saveState(DataOutputStream out) throws IOException;
 
-   public abstract void loadState(DataInputStream in, int snapshotVersion) throws IOException;
+   public abstract void loadState(DataInputStream in) throws IOException;
 
    public void writeSnapshot(File file, long prevTerm) throws IOException {
       try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(new GZIPOutputStream(new FileOutputStream(file))))) {
@@ -142,10 +142,8 @@ public abstract class StateMachine<T extends StateMachine<T>> {
          out.writeLong(term);
          out.writeLong(index);
          out.writeLong(prevTerm);
-         if (SNAPSHOT_FILE_VERSION >= 2) {
-            out.writeLong(count);
-            out.writeLong(checksum);
-         }
+         out.writeLong(count);
+         out.writeLong(checksum);
          out.writeInt(peers.size());
          for (Peer peer : peers.values()) {
             peer.write(out);
@@ -156,23 +154,23 @@ public abstract class StateMachine<T extends StateMachine<T>> {
 
    public void readSnapshot(File file) throws IOException {
       try (DataInputStream in = new DataInputStream(new GZIPInputStream(new BufferedInputStream(new FileInputStream(file))))) {
-         int version = in.readInt();
-         assert (version <= SNAPSHOT_FILE_VERSION);
+         final int fileVersion = in.readInt();
+         if (fileVersion > SNAPSHOT_FILE_VERSION) {
+            throw new IOException("Incompatible Snapshot Format: " + fileVersion + " > " + SNAPSHOT_FILE_VERSION);
+         }
          term = in.readLong();
          index = in.readLong();
          prevIndex = index - 1;
          prevTerm = in.readLong();
-         if (version >= 2) {
-            count = in.readLong();
-            checksum = in.readLong();
-         }
+         count = in.readLong();
+         checksum = in.readLong();
          peers.clear();
          final int numPeers = in.readInt();
          for (int i = 0; i < numPeers; i++) {
             Peer p = new Peer(in);
             peers.put(p.peerId, p);
          }
-         loadState(in, version);
+         loadState(in);
       }
    }
 
@@ -273,5 +271,5 @@ public abstract class StateMachine<T extends StateMachine<T>> {
    public String toString() {
       return getClass().getSimpleName();
    }
-   
+
 }

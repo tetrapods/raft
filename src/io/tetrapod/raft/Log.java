@@ -21,7 +21,7 @@ public class Log<T extends StateMachine<T>> {
 
    public static final Logger   logger           = LoggerFactory.getLogger(Log.class);
 
-   public static final int      LOG_FILE_VERSION = 2;
+   public static final int      LOG_FILE_VERSION = 1;
 
    /**
     * The log's in-memory buffer of log entries
@@ -578,15 +578,16 @@ public class Log<T extends StateMachine<T>> {
    public long saveSnapshot() throws IOException {
       // currently pauses the world to save a snapshot
       synchronized (stateMachine) {
-         File openFile = new File(getLogDirectory(), "raft.open.snapshot");
+         final File openFile = new File(getLogDirectory(), "open.snapshot");
+         logger.info(String.format("Saving snapshot @ %016X", stateMachine.getIndex()));
          stateMachine.writeSnapshot(openFile, getTerm(stateMachine.getPrevIndex()));
          File file = new File(getLogDirectory(), "raft.snapshot");
          if (file.exists()) {
-            file.renameTo(new File(getLogDirectory(), String.format("raft.%016X.snapshot", stateMachine.getIndex())));
+            final long oldIndex = StateMachine.getSnapshotIndex(file);
+            file.renameTo(new File(getLogDirectory(), String.format("raft.%016X.snapshot", oldIndex)));
          }
-         archiveOldLogFiles();
-
          openFile.renameTo(file);
+         archiveOldLogFiles();
          return stateMachine.getIndex();
       }
    }

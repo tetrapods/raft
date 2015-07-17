@@ -40,7 +40,7 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
    }
 
    @Override
-   public void loadState(DataInputStream in, int snapshotVersion) throws IOException {
+   public void loadState(DataInputStream in) throws IOException {
       count = in.readLong();
       checksum = in.readLong();
    }

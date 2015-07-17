@@ -37,13 +37,8 @@ public class StorageItem {
       this.data = new byte[in.readInt()];
       in.readFully(this.data);
       this.version = in.readInt();
-
-      if (fileVersion >= 1) {
-         if (in.readBoolean()) {
-            this.lock = new LockInfo(in.readLong(), in.readUTF());
-         }
-      } else {
-         this.lock = new LockInfo(in.readLong(), null);
+      if (in.readBoolean()) {
+         this.lock = new LockInfo(in.readLong(), in.readUTF());
       }
    }
 

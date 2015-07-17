@@ -90,11 +90,11 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
    }
 
    @Override
-   public void loadState(DataInputStream in, int snapshotVersion) throws IOException {
+   public void loadState(DataInputStream in) throws IOException {
       items.clear();
       copyOnWrite.clear();
 
-      final int fileVersion = snapshotVersion >= 3 ? in.readInt() : 0;
+      final int fileVersion = in.readInt();
       if (fileVersion > STORAGE_STATE_FILE_VERSION) {
          throw new IOException("Incompatible Snapshot Format: " + fileVersion + " > " + STORAGE_STATE_FILE_VERSION);
       }

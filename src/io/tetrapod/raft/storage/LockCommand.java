@@ -39,10 +39,8 @@ public class LockCommand<T extends StorageStateMachine<T>> implements Command<T>
    @Override
    public void read(DataInputStream in, int fileVersion) throws IOException {
       key = in.readUTF();
-      if (fileVersion > 1) {
-         if (in.readBoolean()) {
-            uuid = in.readUTF();
-         }
+      if (in.readBoolean()) {
+         uuid = in.readUTF();
       }
       leaseForMillis = in.readLong();
       acquired = in.readBoolean();
