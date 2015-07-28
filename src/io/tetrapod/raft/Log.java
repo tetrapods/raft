@@ -318,15 +318,15 @@ public class Log<T extends StateMachine<T>> {
       }
    }
 
+   @SuppressWarnings("resource")
    private void obtainFileLock() throws IOException {
       File lockFile = new File(getLogDirectory(), "lock");
-      lockFile.deleteOnExit();
-      @SuppressWarnings("resource")
       FileOutputStream stream = new FileOutputStream(lockFile);
       FileLock lock = stream.getChannel().tryLock();
       if (lock == null || !lock.isValid()) {
-         throw new IOException("File Lock Held by another proces: " + lockFile);
+         throw new IOException("File lock held by another process: " + lockFile);
       }
+      // purposefully kept open for lifetime of jvm
    }
 
    /**
