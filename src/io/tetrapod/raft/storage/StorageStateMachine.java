@@ -158,8 +158,7 @@ public class StorageStateMachine<T extends StorageStateMachine<T>> extends State
       }
    }
 
-   public boolean lock(String key, String uuid, long leaseForMillis) {
-      final long curTime = System.currentTimeMillis();
+   public boolean lock(String key, String uuid, long leaseForMillis, long curTime) {
       StorageItem item = items.get(key);
       if (item != null) {
          modify(item);

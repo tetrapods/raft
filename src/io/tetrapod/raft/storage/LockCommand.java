@@ -10,11 +10,12 @@ public class LockCommand<T extends StorageStateMachine<T>> implements Command<T>
    private String          key;
    private String          uuid;
    private long            leaseForMillis;
+   private long            curTime;
    private boolean         acquired;
 
    public LockCommand() {}
 
-   public LockCommand(String key, String uuid, long expiry) {
+   public LockCommand(String key, String uuid, long expiry, long curTime) {
       this.key = key;
       this.leaseForMillis = expiry;
       this.uuid = uuid;
@@ -22,7 +23,7 @@ public class LockCommand<T extends StorageStateMachine<T>> implements Command<T>
 
    @Override
    public void applyTo(T state) {
-      acquired = state.lock(key, uuid, leaseForMillis);
+      acquired = state.lock(key, uuid, leaseForMillis, curTime);
    }
 
    @Override
@@ -34,6 +35,7 @@ public class LockCommand<T extends StorageStateMachine<T>> implements Command<T>
       }
       out.writeLong(leaseForMillis);
       out.writeBoolean(acquired);
+      out.writeLong(curTime);
    }
 
    @Override
@@ -44,6 +46,9 @@ public class LockCommand<T extends StorageStateMachine<T>> implements Command<T>
       }
       leaseForMillis = in.readLong();
       acquired = in.readBoolean();
+      if (fileVersion > 1) {
+         curTime = in.readLong();
+      }
    }
 
    @Override
