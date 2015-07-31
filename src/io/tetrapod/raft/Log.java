@@ -21,7 +21,7 @@ public class Log<T extends StateMachine<T>> {
 
    public static final Logger   logger           = LoggerFactory.getLogger(Log.class);
 
-   public static final int      LOG_FILE_VERSION = 2;
+   public static final int      LOG_FILE_VERSION = 3;
 
    /**
     * The log's in-memory buffer of log entries
