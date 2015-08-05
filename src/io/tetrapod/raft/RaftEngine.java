@@ -85,16 +85,6 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       this.currentTerm = log.getLastTerm();
    }
 
-   //   public synchronized void bootstrap(String host, int port) {
-   //      peers.clear();
-   //      currentTerm++;
-   //      if (myPeerId == 0) {
-   //         start(1);
-   //      }
-   //      becomeLeader();
-   //      executeCommand(new AddPeerCommand<T>(host, port, true), null);
-   //   }
-
    public synchronized void start(int peerId) {
       setPeerId(peerId);
       this.role = Role.Follower;
@@ -410,10 +400,6 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    public synchronized void handleAppendEntriesRequest(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<T>[] entries,
          long leaderCommit, AppendEntriesResponseHandler handler) {
 
-      //      if (!isValidPeer(leaderId) && role != Role.Joining) {
-      //         return;
-      //      }
-
       logger.trace(String.format("%s append entries from %d: from <%d:%d>", this, leaderId, prevLogTerm, prevLogIndex));
       if (term >= currentTerm) {
          if (term > currentTerm) {
@@ -443,6 +429,10 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             return;
          } else {
             logger.warn("{} is failing with inconsistent append entries from {}", this, leaderId);
+            logger.warn("Leader prevLogTerm={}, prevLogIndex={}", prevLogTerm, prevLogIndex);
+            logger.warn("Follower firstTerm={}, firstIndex={}", log.getFirstTerm(), log.getFirstIndex());
+            logger.warn("Follower lastTerm={}, lastIndex={}", log.getLastTerm(), log.getLastIndex());
+
          }
       }
 
