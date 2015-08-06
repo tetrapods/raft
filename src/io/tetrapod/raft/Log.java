@@ -29,6 +29,7 @@ public class Log<T extends StateMachine<T>> {
    private final List<Entry<T>> entries          = new ArrayList<>();
 
    private final Config         config;
+   private FileLock             lock;
 
    /**
     * Our current journal file's output stream
@@ -322,7 +323,7 @@ public class Log<T extends StateMachine<T>> {
    private void obtainFileLock() throws IOException {
       File lockFile = new File(getLogDirectory(), "lock");
       FileOutputStream stream = new FileOutputStream(lockFile);
-      FileLock lock = stream.getChannel().tryLock();
+      lock = stream.getChannel().tryLock();
       if (lock == null || !lock.isValid()) {
          throw new IOException("File lock held by another process: " + lockFile);
       }

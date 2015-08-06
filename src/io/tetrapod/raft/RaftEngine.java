@@ -432,7 +432,6 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             logger.warn("Leader prevLogTerm={}, prevLogIndex={}", prevLogTerm, prevLogIndex);
             logger.warn("Follower firstTerm={}, firstIndex={}", log.getFirstTerm(), log.getFirstIndex());
             logger.warn("Follower lastTerm={}, lastIndex={}", log.getLastTerm(), log.getLastIndex());
-
          }
       }
 
@@ -550,7 +549,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          while (!pendingCommands.isEmpty()) {
             final PendingCommand<T> item = pendingCommands.poll();
             if (item.entry.index <= log.getStateMachineIndex()) {
-               logger.info("Returning Pending Command Response To Client {}", item.entry);
+               logger.debug("Returning Pending Command Response To Client {}", item.entry);
                item.handler.handleResponse(item.entry);
             } else {
                pendingCommands.addFirst(item);
