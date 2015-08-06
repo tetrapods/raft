@@ -432,6 +432,13 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             logger.warn("Leader prevLogTerm={}, prevLogIndex={}", prevLogTerm, prevLogIndex);
             logger.warn("Follower firstTerm={}, firstIndex={}", log.getFirstTerm(), log.getFirstIndex());
             logger.warn("Follower lastTerm={}, lastIndex={}", log.getLastTerm(), log.getLastIndex());
+            
+            
+            if (prevLogIndex > log.getCommitIndex()) {
+               log.wipeConflictedEntries(prevLogIndex);
+            }
+            
+            
          }
       }
 
