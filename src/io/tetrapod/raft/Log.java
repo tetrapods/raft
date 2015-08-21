@@ -207,7 +207,7 @@ public class Log<T extends StateMachine<T>> {
    /**
     * Deletes all uncommitted entries after a certain index
     */
-   private synchronized void wipeConflictedEntries(long index) {
+   public synchronized void wipeConflictedEntries(long index) {
       assert index > commitIndex;
       assert index > snapshotIndex;
 
