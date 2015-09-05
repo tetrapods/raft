@@ -19,39 +19,39 @@ import org.slf4j.*;
  */
 public class Log<T extends StateMachine<T>> {
 
-   public static final Logger   logger           = LoggerFactory.getLogger(Log.class);
+   public static final Logger logger = LoggerFactory.getLogger(Log.class);
 
-   public static final int      LOG_FILE_VERSION = 3;
+   public static final int LOG_FILE_VERSION = 3;
 
    /**
     * The log's in-memory buffer of log entries
     */
-   private final List<Entry<T>> entries          = new ArrayList<>();
+   private final List<Entry<T>> entries = new ArrayList<>();
 
-   private final Config         config;
-   private FileLock             lock;
+   private final Config config;
+   private FileLock     lock;
 
    /**
     * Our current journal file's output stream
     */
-   private DataOutputStream     out;
-   private boolean              running          = true;
+   private DataOutputStream out;
+   private boolean          running = true;
 
    // We keep some key index & term variables that may or 
    // may not be in our buffer and are accessed frequently:
 
-   private long                 snapshotIndex    = 0;
-   private long                 snapshotTerm     = 0;
-   private long                 firstIndex       = 0;
-   private long                 firstTerm        = 0;
-   private long                 lastIndex        = 0;
-   private long                 lastTerm         = 0;
-   private long                 commitIndex      = 0;
+   private long snapshotIndex = 0;
+   private long snapshotTerm  = 0;
+   private long firstIndex    = 0;
+   private long firstTerm     = 0;
+   private long lastIndex     = 0;
+   private long lastTerm      = 0;
+   private long commitIndex   = 0;
 
    /**
     * The state machine we are coordinating via raft
     */
-   private final T              stateMachine;
+   private final T stateMachine;
 
    public Log(Config config, T stateMachine) throws IOException {
       this.stateMachine = stateMachine;
@@ -111,7 +111,7 @@ public class Log<T extends StateMachine<T>> {
 
          // update our indexes
          if (firstIndex == 0) {
-            assert (entries.size() == 1);
+            assert(entries.size() == 1);
             firstIndex = entry.index;
             firstTerm = entry.term;
 
@@ -396,8 +396,8 @@ public class Log<T extends StateMachine<T>> {
          synchronized (stateMachine) {
             while (commitIndex > stateMachine.getIndex()) {
                final Entry<T> e = getEntry(stateMachine.getIndex() + 1);
-               assert (e != null);
-               assert (e.index == stateMachine.getIndex() + 1);
+               assert(e != null);
+               assert(e.index == stateMachine.getIndex() + 1);
                stateMachine.apply(e);
                ensureCorrectLogFile(e.index);
                e.write(out);
@@ -444,7 +444,7 @@ public class Log<T extends StateMachine<T>> {
       // get the most recent file of entries
       final List<Entry<T>> list = loadLogFile(getFile(stateMachine.getIndex(), true));
       if (list != null && list.size() > 0) {
-         assert (entries.size() == 0);
+         assert(entries.size() == 0);
          entries.addAll(list);
          firstIndex = entries.get(0).index;
          firstTerm = entries.get(0).term;
@@ -471,11 +471,11 @@ public class Log<T extends StateMachine<T>> {
     */
    @SuppressWarnings("serial")
    private final Map<String, List<Entry<T>>> entryFileCache = new LinkedHashMap<String, List<Entry<T>>>(3, 0.75f, true) {
-                                                               @Override
-                                                               protected boolean removeEldestEntry(Map.Entry<String, List<Entry<T>>> eldest) {
-                                                                  return size() > 2;
-                                                               }
-                                                            };
+      @Override
+      protected boolean removeEldestEntry(Map.Entry<String, List<Entry<T>>> eldest) {
+         return size() > 2;
+      }
+   };
 
    private Entry<T> getEntryFromDisk(long index) throws IOException {
       File file = getFile(index, true);
@@ -503,7 +503,7 @@ public class Log<T extends StateMachine<T>> {
                logger.info("Loading Log File {}", file);
                try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(file)))) {
                   final int version = in.readInt();
-                  assert (version <= LOG_FILE_VERSION);
+                  assert(version <= LOG_FILE_VERSION);
                   Entry<T> last = null;
                   while (true) {
                      final Entry<T> e = new Entry<T>(in, version, stateMachine);
@@ -561,10 +561,11 @@ public class Log<T extends StateMachine<T>> {
             File file = getFile(index, true);
             if (file.exists()) {
                logger.info("Archiving old log file {}", file);
-               File newFile = new File("archived", file.getName());
-               newFile.mkdirs();
+               File archiveDir = new File(getLogDirectory(), "archived");
+               archiveDir.mkdir();
+               File newFile = new File(archiveDir, file.getName());
                file.renameTo(newFile);
-               //file.delete();
+               // TODO: Archive into larger log files
             } else {
                break;
             }
