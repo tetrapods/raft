@@ -3,10 +3,15 @@ package io.tetrapod.raft.storage;
 import java.io.*;
 import java.util.Arrays;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * A wrapper for a document in the Storage database
  */
 public class StorageItem {
+   public static final Logger logger = LoggerFactory.getLogger(StorageItem.class);
+
    public final String key;
    private int         version;
    private byte[]      data;
@@ -84,8 +89,10 @@ public class StorageItem {
    }
 
    public boolean lock(long leaseForMillis, long curTime, String lockOwner) {
-      if (lock != null && lock.lockExpiry > curTime)
+      if (lock != null && lock.lockExpiry > curTime) {
+         logger.debug("Lock is held by {} for another {} ms", lock.lockOwner, lock.lockExpiry - curTime);
          return false;
+      }
       this.version++;
       this.lock = new LockInfo(curTime + leaseForMillis, lockOwner);
       return true;
