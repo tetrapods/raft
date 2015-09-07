@@ -19,6 +19,7 @@ public class LockCommand<T extends StorageStateMachine<T>> implements Command<T>
       this.key = key;
       this.leaseForMillis = expiry;
       this.uuid = uuid;
+      this.curTime = curTime;
    }
 
    @Override
