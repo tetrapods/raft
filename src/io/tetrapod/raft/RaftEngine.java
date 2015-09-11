@@ -32,7 +32,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       Joining, Observer, Follower, Candidate, Leader, Failed, Leaving
    }
 
-   public volatile boolean                     DEBUG           = false;
+   public volatile boolean DEBUG = false;
 
    private final SecureRandom                  random          = new SecureRandom();
    private final Map<Integer, Peer>            peers           = new HashMap<>();
@@ -41,13 +41,14 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    private final RaftRPC<T>                    rpc;
    private final Config                        config;
 
-   private Role                                role            = Role.Joining;
-   private int                                 myPeerId;
-   private long                                currentTerm;
-   private int                                 votedFor;
-   private int                                 leaderId;
-   private long                                electionTimeout;
-   private long                                firstIndexOfTerm;
+   private Role role              = Role.Joining;
+   private int  myPeerId;
+   private long currentTerm;
+   private int  votedFor;
+   private int  leaderId;
+   private long electionTimeout;
+   private long firstIndexOfTerm;
+   private long lastTermCommitted = 0;
 
    public static class Peer {
       public final int peerId;
@@ -82,7 +83,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       T stateMachine = stateMachineFactory.makeStateMachine();
       stateMachine.addListener(this);
       this.log = new Log<T>(config, stateMachine);
-      this.currentTerm = log.getLastTerm();
+      this.lastTermCommitted = this.currentTerm = log.getLastTerm();
    }
 
    public synchronized void start(int peerId) {
@@ -148,7 +149,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
    private synchronized void rescheduleElection() {
       this.electionTimeout = System.currentTimeMillis() + config.getElectionTimeoutFixedMillis()
-            + random.nextInt(config.getElectionTimeoutRandomMillis());
+               + random.nextInt(config.getElectionTimeoutRandomMillis());
    }
 
    private void launchPeriodicTasksThread() {
@@ -214,7 +215,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    }
 
    private synchronized void updateCommitIndex() {
-      assert (role == Role.Leader);
+      assert(role == Role.Leader);
       // we can't commit anything until we've replicated something from this term
       if (isCommittable(firstIndexOfTerm)) {
          // we can commit any entry a majority of peers have replicated
@@ -222,8 +223,19 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          for (Peer peer : peers.values()) {
             index = Math.min(index, peer.matchIndex);
          }
-         index = Math.max(index, log.getCommitIndex() /*+ 1*/);
+         index = Math.max(index, log.getCommitIndex());
          while (index <= log.getLastIndex() && isCommittable(index)) {
+
+            // Logging for PT #102932910
+            Entry<?> e = log.getEntry(index);
+            if (e != null && lastTermCommitted != e.term) {
+               logger.info("Committed new term {}", e.term);
+               for (Peer p : peers.values()) {
+                  logger.info(" - {} has matchIndex {} >= {} ({})", p, p.matchIndex, firstIndexOfTerm, p.matchIndex >= firstIndexOfTerm);
+               }
+               lastTermCommitted = e.term;
+            }
+
             log.setCommitIndex(index);
             index++;
          }
@@ -246,23 +258,23 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             peer.nextIndex = 1;
             peer.matchIndex = 0;
             rpc.sendRequestVote(config.getClusterName(), peer.peerId, currentTerm, myPeerId, log.getLastIndex(), log.getLastTerm(),
-                  new RaftRPC.VoteResponseHandler() {
-                     @Override
-                     public void handleResponse(long term, boolean voteGranted) {
-                        synchronized (RaftEngine.this) {
-                           if (!stepDown(term)) {
-                              if (term == currentTerm && role == Role.Candidate) {
-                                 if (voteGranted) {
-                                    votes.val++;
-                                 }
-                                 if (votes.val > votesNeeded) {
-                                    becomeLeader();
+                     new RaftRPC.VoteResponseHandler() {
+                        @Override
+                        public void handleResponse(long term, boolean voteGranted) {
+                           synchronized (RaftEngine.this) {
+                              if (!stepDown(term)) {
+                                 if (term == currentTerm && role == Role.Candidate) {
+                                    if (voteGranted) {
+                                       votes.val++;
+                                    }
+                                    if (votes.val > votesNeeded) {
+                                       becomeLeader();
+                                    }
                                  }
                               }
                            }
                         }
-                     }
-                  });
+                     });
          }
       } else {
          becomeLeader();
@@ -272,7 +284,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
    @Override
    public synchronized void handleVoteRequest(String clusterName, long term, int candidateId, long lastLogIndex, long lastLogTerm,
-         VoteResponseHandler handler) {
+            VoteResponseHandler handler) {
       if (!config.getClusterName().equals(clusterName) || !isValidPeer(candidateId)) {
          return;
       }
@@ -280,7 +292,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          stepDown(term);
       }
       if (term >= currentTerm && (votedFor == 0 || votedFor == candidateId) && lastLogIndex >= log.getLastIndex()
-            && lastLogTerm >= log.getLastTerm()) {
+               && lastLogTerm >= log.getLastTerm()) {
          votedFor = candidateId;
          rescheduleElection();
 
@@ -344,12 +356,12 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          peer.appendPending = false; // time out the last append
       }
       if (!peer.appendPending && (peer.nextIndex < log.getLastIndex() || now > peer.lastAppendMillis + config.getHeartbeatMillis())) {
-         assert (peer.nextIndex > 0);
+         assert(peer.nextIndex > 0);
 
          // for a fresh peer we'll start with an empty list of entries so we can learn what index the node is already on in it's log
          // fetch entries from log to send to the peer
-         final Entry<T>[] entries = (!peer.fresh && peer.snapshotTransfer == null) ? log.getEntries(peer.nextIndex,
-               config.getMaxEntriesPerRequest()) : null;
+         final Entry<T>[] entries = (!peer.fresh && peer.snapshotTransfer == null)
+                  ? log.getEntries(peer.nextIndex, config.getMaxEntriesPerRequest()) : null;
 
          // if this peer needs entries we no longer have, then send them a snapshot
          if (!peer.fresh && peer.nextIndex > 0 && peer.nextIndex < log.getFirstIndex() && entries == null) {
@@ -362,43 +374,43 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             peer.lastAppendMillis = now;
             peer.appendPending = true;
             rpc.sendAppendEntries(peer.peerId, currentTerm, myPeerId, prevLogIndex, prevLogTerm, entries, log.getCommitIndex(),
-                  new AppendEntriesResponseHandler() {
-                     @Override
-                     public void handleResponse(final long term, final boolean success, final long lastLogIndex) {
-                        synchronized (RaftEngine.this) {
-                           peer.appendPending = false;
-                           if (role == Role.Leader) {
-                              if (!stepDown(term)) {
-                                 peer.fresh = false;
-                                 if (success) {
-                                    if (entries != null) {
-                                       peer.matchIndex = entries[entries.length - 1].index;
-                                       peer.nextIndex = peer.matchIndex + 1;
-                                       assert peer.nextIndex != 0;
+                     new AppendEntriesResponseHandler() {
+                        @Override
+                        public void handleResponse(final long term, final boolean success, final long lastLogIndex) {
+                           synchronized (RaftEngine.this) {
+                              peer.appendPending = false;
+                              if (role == Role.Leader) {
+                                 if (!stepDown(term)) {
+                                    peer.fresh = false;
+                                    if (success) {
+                                       if (entries != null) {
+                                          peer.matchIndex = entries[entries.length - 1].index;
+                                          peer.nextIndex = peer.matchIndex + 1;
+                                          assert peer.nextIndex != 0;
+                                       } else {
+                                          peer.nextIndex = Math.max(lastLogIndex + 1, 1);
+                                       }
+                                       updatePeer(peer);
                                     } else {
-                                       peer.nextIndex = Math.max(lastLogIndex + 1, 1);
-                                    }
-                                    updatePeer(peer);
-                                 } else {
-                                    //assert peer.nextIndex > 1 : "peer.nextIndex = " + peer.nextIndex;
-                                    if (peer.nextIndex > lastLogIndex) {
-                                       peer.nextIndex = Math.max(lastLogIndex + 1, 1);
-                                    } else if (peer.nextIndex > 1) {
-                                       peer.nextIndex--;
+                                       //assert peer.nextIndex > 1 : "peer.nextIndex = " + peer.nextIndex;
+                                       if (peer.nextIndex > lastLogIndex) {
+                                          peer.nextIndex = Math.max(lastLogIndex + 1, 1);
+                                       } else if (peer.nextIndex > 1) {
+                                          peer.nextIndex--;
+                                       }
                                     }
                                  }
                               }
                            }
                         }
-                     }
-                  });
+                     });
          }
       }
    }
 
    @Override
    public synchronized void handleAppendEntriesRequest(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<T>[] entries,
-         long leaderCommit, AppendEntriesResponseHandler handler) {
+            long leaderCommit, AppendEntriesResponseHandler handler) {
 
       logger.trace(String.format("%s append entries from %d: from <%d:%d>", this, leaderId, prevLogTerm, prevLogIndex));
       if (term >= currentTerm) {
@@ -432,13 +444,11 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             logger.warn("Leader prevLogTerm={}, prevLogIndex={}", prevLogTerm, prevLogIndex);
             logger.warn("Follower firstTerm={}, firstIndex={}", log.getFirstTerm(), log.getFirstIndex());
             logger.warn("Follower lastTerm={}, lastIndex={}", log.getLastTerm(), log.getLastIndex());
-            
-            
+
             if (prevLogIndex > log.getCommitIndex()) {
                log.wipeConflictedEntries(prevLogIndex);
             }
-            
-            
+
          }
       }
 
@@ -465,7 +475,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             final int partSize = config.getSnapshotPartSize();
             final long len = peer.snapshotTransfer.length();
             final byte data[] = RaftUtil.getFilePart(peer.snapshotTransfer, part * partSize,
-                  (int) Math.min(partSize, len - part * partSize));
+                     (int) Math.min(partSize, len - part * partSize));
 
             rpc.sendInstallSnapshot(peer.peerId, currentTerm, myPeerId, len, partSize, part, data, new InstallSnapshotResponseHandler() {
                @Override
@@ -494,7 +504,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
    @Override
    public void handleInstallSnapshotRequest(long term, long index, long length, int partSize, int part, byte[] data,
-         InstallSnapshotResponseHandler handler) {
+            InstallSnapshotResponseHandler handler) {
       logger.info("handleInstallSnapshot: length={} part={}", length, part);
       rescheduleElection();
 

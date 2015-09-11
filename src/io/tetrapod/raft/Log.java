@@ -401,6 +401,9 @@ public class Log<T extends StateMachine<T>> {
                stateMachine.apply(e);
                ensureCorrectLogFile(e.index);
                e.write(out);
+               if (e.command.getCommandType() == StateMachine.COMMAND_ID_NEW_TERM) {
+                  logger.info("Writing new term {}", e);
+               }
                if ((e.index % config.getEntriesPerSnapshot()) == 0) {
                   saveSnapshot();
                }
