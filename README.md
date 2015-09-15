@@ -7,7 +7,7 @@ We're using this in production, after a decent amount of systems testing but our
 
 You have to provide your own RPC implementation (A class that implements io.tetrapod.raft.RaftRPC) 
 
-We have some support for non-blocking snapshotting using copy-on-writes, but this is not tested or complete.
+It supports log compaction and we have some support for non-blocking snapshotting using copy-on-writes, but this is not tested or complete.
 
 Online cluster configuration changes are not yet supported
 
