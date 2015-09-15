@@ -3,7 +3,7 @@ raft
 
 A java implementation of the [raft distributed consensus algorithm] (https://ramcloud.stanford.edu/wiki/download/attachments/11370504/raft.pdf)
 
-Caveats: We're using this in production, after a decent amount of systems testing but our unit testing is extremely limited.
+We're using this in production, after a decent amount of systems testing but our unit testing is poor.
 
 You have to provide your own RPC implementation (A class that implements io.tetrapod.raft.RaftRPC) 
 
