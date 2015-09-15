@@ -13,4 +13,6 @@ Online cluster configuration changes are not yet supported
 
 We target JDK 7+ and have no dependencies other than logback
 
+Included StorageStateMachine implementation has key/value storage, atomic counters, and distributed locks.
+
 We'd LOVE some more eyeballs on this project, help with unit testing, and documentation.
