@@ -285,6 +285,7 @@ public class Log<T extends StateMachine<T>> {
    }
 
    public void stop() {
+      logger.info("Stopping log...");
       synchronized (this) {
          running = false;
       }
@@ -296,6 +297,8 @@ public class Log<T extends StateMachine<T>> {
                out = null;
             }
          }
+         logger.info("commitIndex = {}, lastIndex = {}", commitIndex, lastIndex);
+         
       } catch (Throwable t) {
          logger.error(t.getMessage(), t);
       }
@@ -560,7 +563,7 @@ public class Log<T extends StateMachine<T>> {
    private void archiveOldLogFiles() throws IOException {
       if (config.getDeleteOldFiles()) {
          long index = commitIndex - (config.getEntriesPerSnapshot() * 4);
-         while (index > 0) {
+         while (index >= 0) {
             File file = getFile(index, true);
             if (file.exists()) {
                logger.info("Archiving old log file {}", file);

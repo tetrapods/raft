@@ -100,9 +100,19 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    }
 
    public synchronized void stop() {
-      role = Role.Leaving;
       clearAllPendingRequests();
       log.stop();
+      for (Peer p : peers.values()) {
+         logger.info(" - {} has matchIndex {}", p, p.matchIndex);
+         if (role == Role.Leader) {
+            // be nice and send a final update to all the peers with our  current commit index before we shutdown
+            long prevLogIndex = p.nextIndex - 1;
+            long prevLogTerm = log.getTerm(prevLogIndex);
+            rpc.sendAppendEntries(p.peerId, currentTerm, myPeerId, prevLogIndex, prevLogTerm, null, log.getCommitIndex(), null);
+         }
+      }
+      role = Role.Leaving;
+      logger.info("Raft Stopped");
    }
 
    @Override
@@ -244,6 +254,11 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
    private synchronized void callElection() {
       log.updateStateMachine();
+
+      if (role == Role.Leaving) {
+         logger.error("Can't call election when leaving");
+         return;
+      }
 
       final int votesNeeded = (1 + peers.size()) / 2;
       final Value<Integer> votes = new Value<>(1);
