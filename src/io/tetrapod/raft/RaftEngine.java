@@ -437,6 +437,10 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             stepDown(term);
          }
          rescheduleElection();
+         
+         if (role == Role.Candidate) {
+            role = Role.Follower;
+         }            
 
          if (log.isConsistentWith(prevLogIndex, prevLogTerm)) {
             if (entries != null) {
