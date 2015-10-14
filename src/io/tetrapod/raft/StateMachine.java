@@ -217,7 +217,11 @@ public abstract class StateMachine<T extends StateMachine<T>> {
    private void fireEntryAppliedEvent(Entry<T> entry) {
       synchronized (listeners) {
          for (Listener<T> listener : listeners) {
-            listener.onLogEntryApplied(entry);
+            try {
+               listener.onLogEntryApplied(entry);
+            } catch (Throwable t) {
+               logger.error(t.getMessage(), t);
+            }
          }
       }
    }

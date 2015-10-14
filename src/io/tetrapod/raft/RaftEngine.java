@@ -32,23 +32,23 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       Joining, Observer, Follower, Candidate, Leader, Failed, Leaving
    }
 
-   public volatile boolean DEBUG = false;
+   public volatile boolean                     DEBUG             = false;
 
-   private final SecureRandom                  random          = new SecureRandom();
-   private final Map<Integer, Peer>            peers           = new HashMap<>();
-   private final LinkedList<PendingCommand<T>> pendingCommands = new LinkedList<>();
+   private final SecureRandom                  random            = new SecureRandom();
+   private final Map<Integer, Peer>            peers             = new HashMap<>();
+   private final LinkedList<PendingCommand<T>> pendingCommands   = new LinkedList<>();
    private final Log<T>                        log;
    private final RaftRPC<T>                    rpc;
    private final Config                        config;
 
-   private Role role              = Role.Joining;
-   private int  myPeerId;
-   private long currentTerm;
-   private int  votedFor;
-   private int  leaderId;
-   private long electionTimeout;
-   private long firstIndexOfTerm;
-   private long lastTermCommitted = 0;
+   private Role                                role              = Role.Joining;
+   private int                                 myPeerId;
+   private long                                currentTerm;
+   private int                                 votedFor;
+   private int                                 leaderId;
+   private long                                electionTimeout;
+   private long                                firstIndexOfTerm;
+   private long                                lastTermCommitted = 0;
 
    public static class Peer {
       public final int peerId;
@@ -225,7 +225,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    }
 
    private synchronized void updateCommitIndex() {
-      assert(role == Role.Leader);
+      assert (role == Role.Leader);
       // we can't commit anything until we've replicated something from this term
       if (isCommittable(firstIndexOfTerm)) {
          // we can commit any entry a majority of peers have replicated
@@ -371,7 +371,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          peer.appendPending = false; // time out the last append
       }
       if (!peer.appendPending && (peer.nextIndex < log.getLastIndex() || now > peer.lastAppendMillis + config.getHeartbeatMillis())) {
-         assert(peer.nextIndex > 0);
+         assert (peer.nextIndex > 0);
 
          // for a fresh peer we'll start with an empty list of entries so we can learn what index the node is already on in it's log
          // fetch entries from log to send to the peer
@@ -438,7 +438,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             role = Role.Follower;
          }
          rescheduleElection();
-         
+
          if (log.isConsistentWith(prevLogIndex, prevLogTerm)) {
             if (entries != null) {
                for (Entry<T> e : entries) {
@@ -574,6 +574,16 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       return false;
    }
 
+   public void executeAfterCommandProcessed(final Entry<T> e, ClientResponseHandler<T> handler) {
+      if (e.index <= log.getStateMachineIndex()) {
+         handler.handleResponse(e);
+      } else {
+         synchronized (pendingCommands) {
+            pendingCommands.add(new PendingCommand<T>(e, handler));
+         }
+      }
+   }
+
    /**
     * Pop all the pending command requests from our list that are now safely replicated to the majority and applied to our state machine
     */
@@ -582,7 +592,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          while (!pendingCommands.isEmpty()) {
             final PendingCommand<T> item = pendingCommands.poll();
             if (item.entry.index <= log.getStateMachineIndex()) {
-               logger.debug("Returning Pending Command Response To Client {}", item.entry);
+               logger.trace("Returning Pending Command Response To Client {}", item.entry);
                item.handler.handleResponse(item.entry);
             } else {
                pendingCommands.addFirst(item);
