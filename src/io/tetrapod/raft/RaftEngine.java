@@ -199,6 +199,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             if (System.currentTimeMillis() > electionTimeout) {
                callElection();
             }
+            updatePendingRequests();
             break;
          case Leader:
             updateCommitIndex();
@@ -588,11 +589,13 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
     * Pop all the pending command requests from our list that are now safely replicated to the majority and applied to our state machine
     */
    private void updatePendingRequests() {
+
       synchronized (pendingCommands) {
          while (!pendingCommands.isEmpty()) {
+          //  logger.info("Updating All Pending Requests {} > {} ", pendingCommands.size(), log.getCommitIndex());
             final PendingCommand<T> item = pendingCommands.poll();
             if (item.entry.index <= log.getStateMachineIndex()) {
-               logger.trace("Returning Pending Command Response To Client {}", item.entry);
+               logger.debug("Returning Pending Command Response To Client {}", item.entry);
                item.handler.handleResponse(item.entry);
             } else {
                pendingCommands.addFirst(item);
@@ -603,6 +606,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    }
 
    private synchronized void clearAllPendingRequests() {
+      logger.info("Clearing All Pending Requests");
       synchronized (pendingCommands) {
          for (PendingCommand<T> item : pendingCommands) {
             item.handler.handleResponse(null);
