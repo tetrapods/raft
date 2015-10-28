@@ -70,20 +70,18 @@ public class RaftEngineTester implements RaftRPC<TestStateMachine> {
       sleep(5000);
       logRafts();
 
-      Thread t = new Thread(new Runnable() {
-         public void run() {
-            sleep(3000);
-            while (true) {
-               try {
-                  synchronized (rafts) {
-                     for (RaftEngine<TestStateMachine> raft : rafts.values()) {
-                        raft.executeCommand(new TestStateMachine.TestCommand(random.nextLong()), null);
-                     }
+      Thread t = new Thread(() -> {
+         sleep(3000);
+         while (true) {
+            try {
+               synchronized (rafts) {
+                  for (RaftEngine<TestStateMachine> raft : rafts.values()) {
+                     raft.executeCommand(new TestStateMachine.TestCommand(random.nextLong()), null);
                   }
-                  sleep(5);
-               } catch (Throwable t) {
-                  logger.error(t.getMessage(), t);
                }
+               sleep(5);
+            } catch (Throwable t1) {
+               logger.error(t1.getMessage(), t1);
             }
          }
       });
@@ -192,15 +190,13 @@ public class RaftEngineTester implements RaftRPC<TestStateMachine> {
          final long lastLogTerm, final VoteResponseHandler handler) {
       final RaftEngine<?> r = rafts.get(peerId);
       if (r != null) {
-         executor.schedule(new Runnable() {
-            public void run() {
-               try {
-                  r.handleVoteRequest(clusterName, term, candidateId, lastLogIndex, lastLogTerm, handler);
-               } catch (Throwable t) {
-                  logger.error(t.getMessage(), t);
-               }
-
+         executor.schedule(() -> {
+            try {
+               r.handleVoteRequest(clusterName, term, candidateId, lastLogIndex, lastLogTerm, handler);
+            } catch (Throwable t) {
+               logger.error(t.getMessage(), t);
             }
+
          }, randomDelay(), TimeUnit.MILLISECONDS);
       }
    }
@@ -210,13 +206,11 @@ public class RaftEngineTester implements RaftRPC<TestStateMachine> {
          final Entry<TestStateMachine>[] entries, final long leaderCommit, final AppendEntriesResponseHandler handler) {
       final RaftEngine<TestStateMachine> r = rafts.get(peerId);
       if (r != null) {
-         executor.schedule(new Runnable() {
-            public void run() {
-               try {
-                  r.handleAppendEntriesRequest(term, leaderId, prevLogIndex, prevLogTerm, entries, leaderCommit, handler);
-               } catch (Throwable t) {
-                  logger.error(t.getMessage(), t);
-               }
+         executor.schedule(() -> {
+            try {
+               r.handleAppendEntriesRequest(term, leaderId, prevLogIndex, prevLogTerm, entries, leaderCommit, handler);
+            } catch (Throwable t) {
+               logger.error(t.getMessage(), t);
             }
          }, randomDelay(), TimeUnit.MILLISECONDS);
       }
@@ -227,13 +221,11 @@ public class RaftEngineTester implements RaftRPC<TestStateMachine> {
          final byte[] data, final InstallSnapshotResponseHandler handler) {
       final RaftEngine<TestStateMachine> r = rafts.get(peerId);
       if (r != null) {
-         executor.schedule(new Runnable() {
-            public void run() {
-               try {
-                  r.handleInstallSnapshotRequest(term, index, length, partSize, part, data, handler);
-               } catch (Throwable t) {
-                  logger.error(t.getMessage(), t);
-               }
+         executor.schedule(() -> {
+            try {
+               r.handleInstallSnapshotRequest(term, index, length, partSize, part, data, handler);
+            } catch (Throwable t) {
+               logger.error(t.getMessage(), t);
             }
          }, randomDelay(), TimeUnit.MILLISECONDS);
       }
@@ -243,13 +235,11 @@ public class RaftEngineTester implements RaftRPC<TestStateMachine> {
    public void sendIssueCommand(int peerId, final Command<TestStateMachine> command, final ClientResponseHandler<TestStateMachine> handler) {
       final RaftEngine<TestStateMachine> r = rafts.get(peerId);
       if (r != null) {
-         executor.schedule(new Runnable() {
-            public void run() {
-               try {
-                  r.handleClientRequest(command, handler);
-               } catch (Throwable t) {
-                  logger.error(t.getMessage(), t);
-               }
+         executor.schedule(() -> {
+            try {
+               r.handleClientRequest(command, handler);
+            } catch (Throwable t) {
+               logger.error(t.getMessage(), t);
             }
          }, randomDelay(), TimeUnit.MILLISECONDS);
       }

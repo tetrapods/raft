@@ -15,6 +15,7 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
    private long         count    = 0;
 
    public static class Factory implements StateMachine.Factory<TestStateMachine> {
+      @Override
       public TestStateMachine makeStateMachine() {
          return new TestStateMachine();
       }
@@ -75,6 +76,7 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
          out.writeLong(val);
       }
 
+      @Override
       public void read(DataInputStream in, int fileVersion) throws IOException {
          this.val = in.readLong();
       }
@@ -85,12 +87,7 @@ public class TestStateMachine extends StateMachine<TestStateMachine> {
       }
 
       public static CommandFactory<TestStateMachine> getFactory() {
-         return new CommandFactory<TestStateMachine>() {
-            @Override
-            public Command<TestStateMachine> makeCommand() {
-               return new TestCommand();
-            }
-         };
+         return () -> new TestCommand();
       }
    }
 
