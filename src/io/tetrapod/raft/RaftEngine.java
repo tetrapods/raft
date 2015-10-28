@@ -163,18 +163,16 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    }
 
    private void launchPeriodicTasksThread() {
-      final Thread t = new Thread(new Runnable() {
-         public void run() {
-            while (getRole() != Role.Leaving) {
-               try {
-                  runPeriodicTasks();
-                  Thread.sleep(10);
-               } catch (Throwable t) {
-                  logger.error(t.getMessage(), t);
-               }
+      final Thread t = new Thread(() -> {
+         while (getRole() != Role.Leaving) {
+            try {
+               runPeriodicTasks();
+               Thread.sleep(10);
+            } catch (Throwable e) {
+               logger.error(e.getMessage(), e);
             }
          }
-      }, "RaftEngine");
+      } , "RaftEngine");
       t.start();
    }
 
@@ -592,7 +590,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
       synchronized (pendingCommands) {
          while (!pendingCommands.isEmpty()) {
-          //  logger.info("Updating All Pending Requests {} > {} ", pendingCommands.size(), log.getCommitIndex());
+            //  logger.info("Updating All Pending Requests {} > {} ", pendingCommands.size(), log.getCommitIndex());
             final PendingCommand<T> item = pendingCommands.poll();
             if (item.entry.index <= log.getStateMachineIndex()) {
                logger.debug("Returning Pending Command Response To Client {}", item.entry);
