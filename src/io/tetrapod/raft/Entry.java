@@ -33,7 +33,7 @@ public class Entry<T extends StateMachine<T>> {
       term = in.readLong();
       index = in.readLong();
       final int typeId = in.readInt();
-      command = (Command<T>) state.makeCommandById(typeId);
+      command = state.makeCommandById(typeId);
       if (command == null) {
          throw new IOException("Could not create command type " + typeId);
       }

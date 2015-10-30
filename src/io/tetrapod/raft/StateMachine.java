@@ -89,30 +89,10 @@ public abstract class StateMachine<T extends StateMachine<T>> {
    }
 
    public StateMachine() {
-      registerCommand(COMMAND_ID_ADD_PEER, new CommandFactory<T>() {
-         @Override
-         public Command<T> makeCommand() {
-            return new AddPeerCommand<T>();
-         }
-      });
-      registerCommand(COMMAND_ID_DEL_PEER, new CommandFactory<T>() {
-         @Override
-         public Command<T> makeCommand() {
-            return new DelPeerCommand<T>();
-         }
-      });
-      registerCommand(COMMAND_ID_NEW_TERM, new CommandFactory<T>() {
-         @Override
-         public Command<T> makeCommand() {
-            return new NewTermCommand<T>();
-         }
-      });
-      registerCommand(COMMAND_ID_HEALTH_CHECK, new CommandFactory<T>() {
-         @Override
-         public Command<T> makeCommand() {
-            return new HealthCheckCommand<T>();
-         }
-      });
+      registerCommand(COMMAND_ID_ADD_PEER, () -> new AddPeerCommand<T>());
+      registerCommand(COMMAND_ID_DEL_PEER, () -> new DelPeerCommand<T>());
+      registerCommand(COMMAND_ID_NEW_TERM, () -> new NewTermCommand<T>());
+      registerCommand(COMMAND_ID_HEALTH_CHECK, () -> new HealthCheckCommand<T>());
    }
 
    public SnapshotMode getSnapshotMode() {
@@ -217,7 +197,11 @@ public abstract class StateMachine<T extends StateMachine<T>> {
    private void fireEntryAppliedEvent(Entry<T> entry) {
       synchronized (listeners) {
          for (Listener<T> listener : listeners) {
-            listener.onLogEntryApplied(entry);
+            try {
+               listener.onLogEntryApplied(entry);
+            } catch (Throwable t) {
+               logger.error(t.getMessage(), t);
+            }
          }
       }
    }
