@@ -583,7 +583,7 @@ public class Log<T extends StateMachine<T>> {
                final long snapIndex = Long.parseLong(m.group(1), 16);
                logger.info("{} Checking {}: {}", Long.toHexString(index), file, Long.toHexString(snapIndex));
                if (snapIndex < index) {
-                  if (index % (config.getEntriesPerSnapshot() * 16) == 0) {
+                  if (snapIndex % (config.getEntriesPerSnapshot() * 16) == 0) {
                      logger.info("Archiving old snapshot file {}", file);
                      file.renameTo(new File(archiveDir, file.getName()));
                   } else {
