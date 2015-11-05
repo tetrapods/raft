@@ -59,6 +59,11 @@ public abstract class StateMachine<T extends StateMachine<T>> {
    private long                                 prevTerm;
    private final Map<Integer, Peer>             peers            = new HashMap<>();
 
+   /**
+    * The timestamp of when we last applied a command
+    */
+   private long                                 lastCommandAppliedMillis;
+
    public static class Peer {
       public final int    peerId;
       public final String host;
@@ -168,6 +173,13 @@ public abstract class StateMachine<T extends StateMachine<T>> {
       }
    }
 
+   /**
+    * Return the time we last applied a command
+    */
+   public long getLastCommandAppliedMillis() {
+      return lastCommandAppliedMillis;
+   }
+
    public long getIndex() {
       return index;
    }
@@ -191,6 +203,7 @@ public abstract class StateMachine<T extends StateMachine<T>> {
       entry.command.applyTo((T) this);
       this.index = entry.index;
       this.term = entry.term;
+      lastCommandAppliedMillis = System.currentTimeMillis();
       fireEntryAppliedEvent(entry);
    }
 
