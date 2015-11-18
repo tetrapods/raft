@@ -207,8 +207,10 @@ public class Log<T extends StateMachine<T>> {
     * Deletes all uncommitted entries after a certain index
     */
    public synchronized void wipeConflictedEntries(long index) {
-      assert index > commitIndex;
       assert index > snapshotIndex;
+      if (index <= commitIndex) {
+         throw new RuntimeException("Can't restore conflicted index already written to disk: " + index);
+      }
 
       // we have a conflict -- we need to throw away all entries from our log from this point on
       while (lastIndex >= index) {
