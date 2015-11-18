@@ -3,8 +3,11 @@ package io.tetrapod.raft;
 import java.io.*;
 import java.nio.channels.FileLock;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-import org.slf4j.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A raft log is the backbone of the raft algorithm. It stores an ordered list of commands that have been agreed upon by consensus, as well
@@ -204,8 +207,10 @@ public class Log<T extends StateMachine<T>> {
     * Deletes all uncommitted entries after a certain index
     */
    public synchronized void wipeConflictedEntries(long index) {
-      assert index > commitIndex;
       assert index > snapshotIndex;
+      if (index <= commitIndex) {
+         throw new RuntimeException("Can't restore conflicted index already written to disk: " + index);
+      }
 
       // we have a conflict -- we need to throw away all entries from our log from this point on
       while (lastIndex >= index) {
@@ -558,20 +563,38 @@ public class Log<T extends StateMachine<T>> {
 
    private void archiveOldLogFiles() throws IOException {
       if (config.getDeleteOldFiles()) {
+         final File archiveDir = new File(getLogDirectory(), "archived");
+         archiveDir.mkdir();
          long index = commitIndex - (config.getEntriesPerSnapshot() * 4);
          while (index >= 0) {
+            logger.info(" Checking ::  {}", Long.toHexString(index));
             File file = getFile(index, true);
             if (file.exists()) {
                logger.info("Archiving old log file {}", file);
-               File archiveDir = new File(getLogDirectory(), "archived");
-               archiveDir.mkdir();
-               File newFile = new File(archiveDir, file.getName());
-               file.renameTo(newFile);
+               file.renameTo(new File(archiveDir, file.getName()));
                // TODO: Archive into larger log files
             } else {
-               break;
+               break; // done archiving
             }
             index -= config.getEntriesPerFile();
+         }
+         final Pattern p = Pattern.compile("raft\\.([0-9A-F]{16})\\.snapshot");
+         for (File file : getLogDirectory().listFiles()) {
+            Matcher m = p.matcher(file.getName());
+            if (m.matches()) {
+               final long snapIndex = Long.parseLong(m.group(1), 16);
+               logger.info("{} Checking {}: {}", Long.toHexString(index), file, Long.toHexString(snapIndex));
+               if (snapIndex < index) {
+                  if (snapIndex % (config.getEntriesPerSnapshot() * 16) == 0) {
+                     logger.info("Archiving old snapshot file {}", file);
+                     file.renameTo(new File(archiveDir, file.getName()));
+                  } else {
+                     // otherwise delete the older ones
+                     logger.info("Deleting old snapshot file {}", file);
+                     file.delete();
+                  }
+               }
+            }
          }
       }
    }
