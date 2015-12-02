@@ -209,6 +209,7 @@ public class Log<T extends StateMachine<T>> {
    public synchronized void wipeConflictedEntries(long index) {
       assert index > snapshotIndex;
       if (index <= commitIndex) {
+         stop();
          throw new RuntimeException("Can't restore conflicted index already written to disk: " + index);
       }
 

@@ -436,6 +436,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
                   if (!log.append(e)) {
                      logger.warn(String.format("%s is failing append entries from %d: %s", this, leaderId, e));
                      handler.handleResponse(currentTerm, false, log.getLastIndex());
+                     stop();
                      return;
                   }
                }
