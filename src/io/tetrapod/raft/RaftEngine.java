@@ -417,6 +417,8 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    @Override
    public synchronized void handleAppendEntriesRequest(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<T>[] entries,
             long leaderCommit, AppendEntriesResponseHandler handler) {
+      if (!log.isRunning())
+         return;
 
       logger.trace(String.format("%s append entries from %d: from <%d:%d>", this, leaderId, prevLogTerm, prevLogIndex));
       if (term >= currentTerm) {
