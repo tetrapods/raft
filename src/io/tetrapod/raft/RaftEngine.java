@@ -421,7 +421,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          return;
       }
 
-      logger.debug(String.format("%s append entries from %d: from <%d:%d>", this, leaderId, prevLogTerm, prevLogIndex));
+      logger.trace(String.format("%s append entries from %d: from <%d:%d>", this, leaderId, prevLogTerm, prevLogIndex));
       if (term >= currentTerm) {
          if (term > currentTerm) {
             stepDown(term);
@@ -436,6 +436,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          if (log.isConsistentWith(prevLogIndex, prevLogTerm)) {
             if (entries != null) {
                for (Entry<T> e : entries) {
+                  logger.info("Appending {} to {}", e, log.getLastIndex());
                   if (!log.append(e)) {
                      logger.warn(String.format("%s is failing append entries from %d: %s", this, leaderId, e));
                      handler.handleResponse(currentTerm, false, log.getLastIndex());
@@ -446,7 +447,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
             log.setCommitIndex(Math.min(leaderCommit, log.getLastIndex()));
 
-            logger.debug("{} is fine with append entries from {}", this, leaderId);
+            logger.trace("{} is fine with append entries from {}", this, leaderId);
             handler.handleResponse(currentTerm, true, log.getLastIndex());
             return;
          } else {
@@ -464,7 +465,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          }
       }
 
-      logger.debug("{} is rejecting append entries from {} {} {}", this, leaderId, prevLogIndex, prevLogTerm);
+      logger.trace("{} is rejecting append entries from {}", this, leaderId);
       handler.handleResponse(currentTerm, false, log.getLastIndex());
    }
 
