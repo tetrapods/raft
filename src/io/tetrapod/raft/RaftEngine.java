@@ -421,7 +421,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          return;
       }
 
-      logger.trace(String.format("%s append entries from %d: from <%d:%d>", this, leaderId, prevLogTerm, prevLogIndex));
+      logger.debug(String.format("%s append entries from %d: from <%d:%d>", this, leaderId, prevLogTerm, prevLogIndex));
       if (term >= currentTerm) {
          if (term > currentTerm) {
             stepDown(term);
@@ -446,7 +446,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
             log.setCommitIndex(Math.min(leaderCommit, log.getLastIndex()));
 
-            logger.trace("{} is fine with append entries from {}", this, leaderId);
+            logger.debug("{} is fine with append entries from {}", this, leaderId);
             handler.handleResponse(currentTerm, true, log.getLastIndex());
             return;
          } else {
