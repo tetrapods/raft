@@ -417,8 +417,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    @Override
    public synchronized void handleAppendEntriesRequest(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<T>[] entries,
             long leaderCommit, AppendEntriesResponseHandler handler) {
-      if (!log.isRunning()) {
-         logger.warn("AppendEntries: Log not running");
+      if (!log.isRunning()) { 
          return;
       }
 
@@ -465,7 +464,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          }
       }
 
-      logger.trace("{} is rejecting append entries from {}", this, leaderId);
+      logger.debug("{} is rejecting append entries from {} {} {}", this, leaderId, prevLogIndex, prevLogTerm);
       handler.handleResponse(currentTerm, false, log.getLastIndex());
    }
 
