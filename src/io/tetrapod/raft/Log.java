@@ -286,24 +286,20 @@ public class Log<T extends StateMachine<T>> {
       return running;
    }
 
-   public void stop() {
+   public synchronized void stop() {
       logger.info("Stopping log...");
-      synchronized (this) {
-         running = false;
-      }
+      running = false;
       try {
          updateStateMachine();
-         synchronized (this) {
-            if (out != null) {
-               out.close();
-               out = null;
-            }
+         if (out != null) {
+            out.close();
+            out = null;
          }
          logger.info("commitIndex = {}, lastIndex = {}", commitIndex, lastIndex);
-
       } catch (Throwable t) {
          logger.error(t.getMessage(), t);
       }
+
    }
 
    private void writeLoop() {
