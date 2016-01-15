@@ -381,8 +381,8 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
             // debugging a weird situation:
             if ((entries == null || entries.length == 0) && peer.nextIndex < log.getCommitIndex()) {
-               logger.warn("Empty entries for peer {}: peerIndex={}, firstIndex={}, lastIndex={} : {}", peer, peer.nextIndex, log.getFirstIndex(), log.getLastIndex(),
-                        entries);
+               logger.warn("Empty entries for peer {} (fresh={},snap={}): peerIndex={}, firstIndex={}, lastIndex={} : {}", peer, peer.fresh,
+                        peer.snapshotTransfer, peer.nextIndex, log.getFirstIndex(), log.getLastIndex(), entries);
                Entry<?> e = log.getEntry(peer.nextIndex);
                logger.warn("{} = {}", peer.nextIndex, e);
             }
