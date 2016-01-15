@@ -90,7 +90,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
       setPeerId(peerId);
       this.role = Role.Follower;
       rescheduleElection();
-      this.electionTimeout += 2000; // add an initial grace period on startup
+      this.electionTimeout += 10000; // add an initial grace period on startup
       launchPeriodicTasksThread();
    }
 
