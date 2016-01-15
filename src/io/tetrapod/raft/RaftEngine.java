@@ -379,6 +379,11 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             long prevLogIndex = peer.nextIndex - 1;
             long prevLogTerm = log.getTerm(prevLogIndex);
 
+            // debugging a weird situation:
+            if ((entries == null || entries.length == 0) && peer.nextIndex < log.getCommitIndex()) {
+               logger.warn("Empty entries for peer {}: peerIndex={}, firstIndex={}", peer, peer.nextIndex, log.getFirstIndex());
+            }
+
             logger.trace("{} is sending append entries to {}", this, peer.peerId);
             peer.lastAppendMillis = now;
             peer.appendPending = true;
@@ -417,7 +422,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
    @Override
    public synchronized void handleAppendEntriesRequest(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<T>[] entries,
             long leaderCommit, AppendEntriesResponseHandler handler) {
-      if (!log.isRunning()) { 
+      if (!log.isRunning()) {
          return;
       }
 
