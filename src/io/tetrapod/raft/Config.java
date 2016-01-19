@@ -6,8 +6,8 @@ import java.io.File;
  * Raft Configuration. All the magic numbers for turning performance to your specific needs.
  */
 public class Config {
-   public static final int     DEFAULT_ELECTION_TIMEOUT_FIXED_MILLIS  = 1000;
-   public static final int     DEFAULT_ELECTION_TIMEOUT_RANDOM_MILLIS = 2000;
+   public static final int     DEFAULT_ELECTION_TIMEOUT_FIXED_MILLIS  = 1500;
+   public static final int     DEFAULT_ELECTION_TIMEOUT_RANDOM_MILLIS = 2500;
    public static final int     DEFAULT_HEARTBEAT_MILLIS               = 250;
    public static final int     DEFAULT_MAX_ENTRIES_PER_REQUEST        = 250;
    public static final int     DEFAULT_PART_SIZE                      = 1024 * 256;
