@@ -512,8 +512,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
                         }
                      } else {
                         logger.error("{} Failed to install snapshot on {}", this, peer);
-                        // TODO: Hmmmmm
-                        //peer.snapshotTransfer = null;
+                        peer.snapshotTransfer = null;
                      }
                   }
                }
