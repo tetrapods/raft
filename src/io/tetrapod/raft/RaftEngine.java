@@ -390,6 +390,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             logger.trace("{} is sending append entries to {}", this, peer.peerId);
             peer.lastAppendMillis = now;
             peer.appendPending = true;
+            peer.snapshotTransfer = null;
             rpc.sendAppendEntries(peer.peerId, currentTerm, myPeerId, prevLogIndex, prevLogTerm, entries, log.getCommitIndex(),
                      (term, success, lastLogIndex) -> {
                         synchronized (RaftEngine.this) {
