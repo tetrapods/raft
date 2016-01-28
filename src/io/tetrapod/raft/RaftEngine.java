@@ -339,6 +339,8 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          peer.matchIndex = 0;
          peer.nextIndex = log.getLastIndex() + 1;
          peer.appendPending = false;
+         peer.snapshotTransfer = null;
+         peer.fresh = true;
          assert peer.nextIndex != 0;
       }
 
@@ -390,6 +392,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             logger.trace("{} is sending append entries to {}", this, peer.peerId);
             peer.lastAppendMillis = now;
             peer.appendPending = true;
+            peer.snapshotTransfer = null;
             rpc.sendAppendEntries(peer.peerId, currentTerm, myPeerId, prevLogIndex, prevLogTerm, entries, log.getCommitIndex(),
                      (term, success, lastLogIndex) -> {
                         synchronized (RaftEngine.this) {
@@ -512,8 +515,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
                         }
                      } else {
                         logger.error("{} Failed to install snapshot on {}", this, peer);
-                        // TODO: Hmmmmm
-                        //peer.snapshotTransfer = null;
+                        peer.snapshotTransfer = null;
                      }
                   }
                }
