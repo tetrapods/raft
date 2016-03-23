@@ -12,8 +12,9 @@ public class UnlockCommand<T extends StorageStateMachine<T>> implements Command<
 
    public UnlockCommand() {}
 
-   public UnlockCommand(String key) {
+   public UnlockCommand(String key, String uuid) {
       this.key = key;
+      this.uuid = uuid;
    }
 
    @Override
