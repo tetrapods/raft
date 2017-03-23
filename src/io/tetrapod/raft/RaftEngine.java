@@ -159,7 +159,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
    private synchronized void rescheduleElection() {
       this.electionTimeout = System.currentTimeMillis() + config.getElectionTimeoutFixedMillis()
-               + random.nextInt(config.getElectionTimeoutRandomMillis());
+            + random.nextInt(config.getElectionTimeoutRandomMillis());
    }
 
    private void launchPeriodicTasksThread() {
@@ -172,7 +172,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
                logger.error(e.getMessage(), e);
             }
          }
-      } , "RaftEngine");
+      }, "RaftEngine");
       t.start();
    }
 
@@ -241,7 +241,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             if (e != null && lastTermCommitted != e.term) {
                logger.info("Committed new term {}", e.term);
                peers.forEach((k, p) -> logger.info(" - {} has matchIndex {} >= {} ({})", p, p.matchIndex, firstIndexOfTerm,
-                        p.matchIndex >= firstIndexOfTerm));
+                     p.matchIndex >= firstIndexOfTerm));
                lastTermCommitted = e.term;
             }
 
@@ -272,20 +272,20 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             peer.nextIndex = 1;
             peer.matchIndex = 0;
             rpc.sendRequestVote(config.getClusterName(), peer.peerId, currentTerm, myPeerId, log.getLastIndex(), log.getLastTerm(),
-                     (term, voteGranted) -> {
-                        synchronized (RaftEngine.this) {
-                           if (!stepDown(term)) {
-                              if (term == currentTerm && role == Role.Candidate) {
-                                 if (voteGranted) {
-                                    votes.val++;
-                                 }
-                                 if (votes.val > votesNeeded) {
-                                    becomeLeader();
-                                 }
+                  (term, voteGranted) -> {
+                     synchronized (RaftEngine.this) {
+                        if (!stepDown(term)) {
+                           if (term == currentTerm && role == Role.Candidate) {
+                              if (voteGranted) {
+                                 votes.val++;
+                              }
+                              if (votes.val > votesNeeded) {
+                                 becomeLeader();
                               }
                            }
                         }
-                     });
+                     }
+                  });
          }
       } else {
          becomeLeader();
@@ -295,7 +295,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
    @Override
    public synchronized void handleVoteRequest(String clusterName, long term, int candidateId, long lastLogIndex, long lastLogTerm,
-            VoteResponseHandler handler) {
+         VoteResponseHandler handler) {
       if (!config.getClusterName().equals(clusterName) || !isValidPeer(candidateId)) {
          return;
       }
@@ -303,7 +303,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          stepDown(term);
       }
       if (term >= currentTerm && (votedFor == 0 || votedFor == candidateId) && lastLogIndex >= log.getLastIndex()
-               && lastLogTerm >= log.getLastTerm()) {
+            && lastLogTerm >= log.getLastTerm()) {
          votedFor = candidateId;
          rescheduleElection();
 
@@ -372,7 +372,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
          // for a fresh peer we'll start with an empty list of entries so we can learn what index the node is already on in it's log
          // fetch entries from log to send to the peer
          final Entry<T>[] entries = (!peer.fresh && peer.snapshotTransfer == null)
-                  ? log.getEntries(peer.nextIndex, config.getMaxEntriesPerRequest()) : null;
+               ? log.getEntries(peer.nextIndex, config.getMaxEntriesPerRequest()) : null;
 
          // if this peer needs entries we no longer have, then send them a snapshot
          if (!peer.fresh && peer.nextIndex > 0 && peer.nextIndex < log.getFirstIndex() && entries == null) {
@@ -384,7 +384,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             // debugging a weird situation:
             if ((entries == null || entries.length == 0) && peer.nextIndex < log.getCommitIndex()) {
                logger.warn("Empty entries for peer {} (fresh={},snap={}): peerIndex={}, firstIndex={}, lastIndex={} : {}", peer, peer.fresh,
-                        peer.snapshotTransfer, peer.nextIndex, log.getFirstIndex(), log.getLastIndex(), entries);
+                     peer.snapshotTransfer, peer.nextIndex, log.getFirstIndex(), log.getLastIndex(), entries);
                Entry<?> e = log.getEntry(peer.nextIndex);
                logger.warn("{} = {}", peer.nextIndex, e);
             }
@@ -394,40 +394,40 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             peer.appendPending = true;
             peer.snapshotTransfer = null;
             rpc.sendAppendEntries(peer.peerId, currentTerm, myPeerId, prevLogIndex, prevLogTerm, entries, log.getCommitIndex(),
-                     (term, success, lastLogIndex) -> {
-                        synchronized (RaftEngine.this) {
-                           peer.appendPending = false;
-                           if (role == Role.Leader) {
-                              if (!stepDown(term)) {
-                                 peer.fresh = false;
-                                 if (success) {
-                                    if (entries != null) {
-                                       peer.matchIndex = entries[entries.length - 1].index;
-                                       peer.nextIndex = peer.matchIndex + 1;
-                                       assert peer.nextIndex != 0;
-                                    } else {
-                                       peer.nextIndex = Math.max(lastLogIndex + 1, 1);
-                                    }
-                                    updatePeer(peer);
+                  (term, success, lastLogIndex) -> {
+                     synchronized (RaftEngine.this) {
+                        peer.appendPending = false;
+                        if (role == Role.Leader) {
+                           if (!stepDown(term)) {
+                              peer.fresh = false;
+                              if (success) {
+                                 if (entries != null) {
+                                    peer.matchIndex = entries[entries.length - 1].index;
+                                    peer.nextIndex = peer.matchIndex + 1;
+                                    assert peer.nextIndex != 0;
                                  } else {
-                                    //assert peer.nextIndex > 1 : "peer.nextIndex = " + peer.nextIndex;
-                                    if (peer.nextIndex > lastLogIndex) {
-                                       peer.nextIndex = Math.max(lastLogIndex + 1, 1);
-                                    } else if (peer.nextIndex > 1) {
-                                       peer.nextIndex--;
-                                    }
+                                    peer.nextIndex = Math.max(lastLogIndex + 1, 1);
+                                 }
+                                 updatePeer(peer);
+                              } else {
+                                 //assert peer.nextIndex > 1 : "peer.nextIndex = " + peer.nextIndex;
+                                 if (peer.nextIndex > lastLogIndex) {
+                                    peer.nextIndex = Math.max(lastLogIndex + 1, 1);
+                                 } else if (peer.nextIndex > 1) {
+                                    peer.nextIndex--;
                                  }
                               }
                            }
                         }
-                     });
+                     }
+                  });
          }
       }
    }
 
    @Override
    public synchronized void handleAppendEntriesRequest(long term, int leaderId, long prevLogIndex, long prevLogTerm, Entry<T>[] entries,
-            long leaderCommit, AppendEntriesResponseHandler handler) {
+         long leaderCommit, AppendEntriesResponseHandler handler) {
       if (!log.isRunning()) {
          return;
       }
@@ -498,7 +498,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
             final int partSize = config.getSnapshotPartSize();
             final long len = peer.snapshotTransfer.length();
             final byte data[] = RaftUtil.getFilePart(peer.snapshotTransfer, part * partSize,
-                     (int) Math.min(partSize, len - part * partSize));
+                  (int) Math.min(partSize, len - part * partSize));
 
             rpc.sendInstallSnapshot(peer.peerId, currentTerm, myPeerId, len, partSize, part, data, new InstallSnapshotResponseHandler() {
                @Override
@@ -509,7 +509,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
                            // send the next part
                            installSnapshot(peer, part + 1);
                         } else {
-                           logger.info("InstallSnapshot: done-{}", peer.nextIndex);
+                           logger.info("InstallSnapshot done {} => {} for {}", peer.nextIndex, snapshotIndex, peer);
                            peer.snapshotTransfer = null;
                            peer.nextIndex = snapshotIndex + 1;
                         }
@@ -526,7 +526,7 @@ public class RaftEngine<T extends StateMachine<T>> implements RaftRPC.Requests<T
 
    @Override
    public void handleInstallSnapshotRequest(long term, long index, long length, int partSize, int part, byte[] data,
-            InstallSnapshotResponseHandler handler) {
+         InstallSnapshotResponseHandler handler) {
       logger.info("handleInstallSnapshot: length={} part={}", length, part);
       rescheduleElection();
 
